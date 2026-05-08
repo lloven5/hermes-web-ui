@@ -122,10 +122,13 @@ async function buildContentBlocks(
 }
 
 function mapHermesMessages(msgs: HermesMessage[]): Message[] {
-  // Filter out assistant messages with empty content
+  // Filter out assistant messages that have neither content nor tool_calls
+  // Keep assistant messages that have content OR have tool_calls (even if content is empty)
   const filteredMsgs = msgs.filter(m => {
     if (m.role === 'assistant') {
-      return m.content && m.content.trim() !== ''
+      const hasContent = m.content && m.content.trim() !== ''
+      const hasToolCalls = m.tool_calls && m.tool_calls.length > 0
+      return hasContent || hasToolCalls
     }
     return true
   })
@@ -133,16 +136,25 @@ function mapHermesMessages(msgs: HermesMessage[]): Message[] {
   // Build lookups from assistant messages with tool_calls
   const toolNameMap = new Map<string, string>()
   const toolArgsMap = new Map<string, string>()
+  const toolNameToArgsMap = new Map<string, string>() // Fallback: toolName -> args (for sequential matching)
+
   for (const msg of filteredMsgs) {
     if (msg.role === 'assistant' && msg.tool_calls) {
       for (const tc of msg.tool_calls) {
         if (tc.id) {
-          if (tc.function?.name) toolNameMap.set(tc.id, tc.function.name)
+          if (tc.function?.name) {
+            toolNameMap.set(tc.id, tc.function.name)
+            // Also map by tool name for fallback matching
+            toolNameToArgsMap.set(tc.function.name, tc.function.arguments || '')
+          }
           if (tc.function?.arguments) toolArgsMap.set(tc.id, tc.function.arguments)
         }
       }
     }
   }
+
+  // Keep track of which tool_names we've seen (for sequential tool result matching)
+  const assistantToolCalls: { name: string; args: string; id: string }[] = []
 
   const result: Message[] = []
   for (const msg of filteredMsgs) {
@@ -150,13 +162,16 @@ function mapHermesMessages(msgs: HermesMessage[]): Message[] {
     if (msg.role === 'assistant' && msg.tool_calls?.length && !msg.content?.trim()) {
       // Emit a tool.started message for each tool call
       for (const tc of msg.tool_calls) {
+        const toolName = tc.function?.name || 'tool'
+        const toolArgs = tc.function?.arguments || undefined
+        assistantToolCalls.push({ name: toolName, args: tc.function?.arguments || '', id: tc.id })
         result.push({
           id: String(msg.id) + '_' + tc.id,
           role: 'tool',
           content: '',
           timestamp: Math.round(msg.timestamp * 1000),
-          toolName: tc.function?.name || 'tool',
-          toolArgs: tc.function?.arguments || undefined,
+          toolName,
+          toolArgs,
           toolStatus: 'done',
         })
       }
@@ -166,8 +181,28 @@ function mapHermesMessages(msgs: HermesMessage[]): Message[] {
     // Tool result messages
     if (msg.role === 'tool') {
       const tcId = msg.tool_call_id || ''
+      // Try to find toolArgs by tool_call_id
+      let toolArgs = toolArgsMap.get(tcId)
+      
+      // Fallback 1: Try to find by tool_name from toolNameToArgsMap
       const toolName = msg.tool_name || toolNameMap.get(tcId) || 'tool'
-      const toolArgs = toolArgsMap.get(tcId) || undefined
+      if (!toolArgs && toolNameToArgsMap.has(toolName)) {
+        toolArgs = toolNameToArgsMap.get(toolName) || undefined
+      }
+      
+      // Fallback 2: Sequential matching - find the next unmatched tool call
+      // This handles cases where tool_call_id is invalid/missing
+      if (!toolArgs) {
+        for (let i = 0; i < assistantToolCalls.length; i++) {
+          const tc = assistantToolCalls[i]
+          if (tc.name === toolName && tc.args) {
+            toolArgs = tc.args
+            // Remove this tool call from the list to avoid reusing it
+            assistantToolCalls.splice(i, 1)
+            break
+          }
+        }
+      }
       // Extract a short preview from the content
       let preview = ''
       if (msg.content) {
@@ -641,24 +676,42 @@ export const useChatStore = defineStore('chat', () => {
       if (!target) return false
       const dbMessages = mapHermesMessages(detail.messages || [])
       let updated = false
-      // 遍历 DB 中的 tool 消息，用完整数据更新内存中的对应消息
-      for (const dbMsg of dbMessages) {
-        if (dbMsg.role !== 'tool') continue
-        // 在内存中查找匹配的 tool 消息（按 toolName 匹配，且 toolArgs/toolResult 缺失的）
-        const matchIdx = target.messages.findIndex(m =>
-          m.role === 'tool' &&
-          m.toolName === dbMsg.toolName &&
-          // 优先匹配 toolArgs/toolResult 缺失的（即流式创建的消息）
-          (!m.toolArgs || !m.toolResult)
-        )
-        if (matchIdx !== -1) {
-          const existing = target.messages[matchIdx]
-          target.messages[matchIdx] = {
+      
+      // 分别统计内存中和 DB 中的 tool 消息，按顺序匹配
+      const existingToolMsgs: Message[] = []
+      const dbToolMsgs: Message[] = []
+      
+      for (const m of target.messages) {
+        if (m.role === 'tool') existingToolMsgs.push(m)
+      }
+      for (const m of dbMessages) {
+        if (m.role === 'tool') dbToolMsgs.push(m)
+      }
+      
+      // 按索引顺序匹配，只更新缺失的字段
+      const maxLen = Math.min(existingToolMsgs.length, dbToolMsgs.length)
+      for (let idx = 0; idx < maxLen; idx++) {
+        const existing = existingToolMsgs[idx]
+        const dbMsg = dbToolMsgs[idx]
+        
+        // 检查是否需要更新（existing 中有缺失，dbMsg 中有值）
+        if (existing.toolArgs && existing.toolResult) continue // 已有完整数据，跳过
+        if (!dbMsg.toolArgs && !dbMsg.toolResult) continue // DB 中也无数据，跳过
+        
+        // 找到 target.messages 中对应的位置
+        const targetIdx = target.messages.findIndex(m => m.id === existing.id)
+        if (targetIdx === -1) continue
+        
+        const needsToolArgs = !existing.toolArgs && dbMsg.toolArgs
+        const needsToolResult = !existing.toolResult && dbMsg.toolResult
+        const needsToolPreview = !existing.toolPreview && dbMsg.toolPreview
+        
+        if (needsToolArgs || needsToolResult || needsToolPreview) {
+          target.messages[targetIdx] = {
             ...existing,
-            // 只补全 DB 中有而流式消息中可能缺失的字段
-            toolArgs: dbMsg.toolArgs || existing.toolArgs,
-            toolResult: dbMsg.toolResult || existing.toolResult,
-            toolPreview: dbMsg.toolPreview || existing.toolPreview,
+            ...(needsToolArgs ? { toolArgs: dbMsg.toolArgs } : {}),
+            ...(needsToolResult ? { toolResult: dbMsg.toolResult } : {}),
+            ...(needsToolPreview ? { toolPreview: dbMsg.toolPreview } : {}),
           }
           updated = true
         }
@@ -1119,6 +1172,10 @@ export const useChatStore = defineStore('chat', () => {
                 }
               }
 
+              // 回答结束后，最后一次从 DB 获取完整数据补全工具气泡
+              // 确保 toolArgs、toolResult 等字段都已填充
+              refreshToolMessagesFromDbWithRetry(sid)
+
               if ((evt as any).queue_remaining > 0) {
                 queueLengths.value.set(sid, (evt as any).queue_remaining)
               } else {
@@ -1535,6 +1592,10 @@ export const useChatStore = defineStore('chat', () => {
               }, 300)
             }
           }
+
+          // 回答结束后，最后一次从 DB 获取完整数据补全工具气泡
+          // 确保 toolArgs、toolResult 等字段都已填充
+          refreshToolMessagesFromDbWithRetry(sid)
 
           if (!hasQueue) {
             cleanup()

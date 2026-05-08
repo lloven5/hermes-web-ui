@@ -43,14 +43,11 @@ function jsonToPrettyHtml(raw: string): string {
   }
 }
 
-/** 递归格式化 JSON 值 → HTML */
+/** 递归格式化 JSON 值 → HTML（完全展示，不截断） */
 function formatJsonValueHtml(val: unknown): string {
   if (val === null) return `<span class="param-keyword">null</span>`;
   if (typeof val === 'string') {
-    // 对长字符串做截断
-    const maxInline = 160;
-    const text = val.length > maxInline ? val.slice(0, maxInline) + '…' : val;
-    return `<span class="param-str">"${escapeHtml(text)}"</span>`;
+    return `<span class="param-str">"${escapeHtml(val)}"</span>`;
   }
   if (typeof val === 'number') {
     return `<span class="param-num">${val}</span>`;
@@ -60,26 +57,22 @@ function formatJsonValueHtml(val: unknown): string {
   }
   if (Array.isArray(val)) {
     if (val.length === 0) return `<span class="param-keyword">[]</span>`;
-    // 简单数组展示前几个
-    const items = val.slice(0, 3).map(v => formatJsonValueHtml(v));
-    if (val.length > 3) items.push('…');
+    const items = val.map(v => formatJsonValueHtml(v));
     return `[${items.join(', ')}]`;
   }
   if (typeof val === 'object') {
     const subEntries = Object.entries(val as Record<string, unknown>);
     if (subEntries.length === 0) return `<span class="param-keyword">{}</span>`;
-    // 嵌套对象只展示前 3 个 key
-    const sub = subEntries.slice(0, 3).map(([k, v]) => {
+    const sub = subEntries.map(([k, v]) => {
       return `<span class="param-key">"${escapeHtml(k)}"</span>: ${formatJsonValueHtml(v)}`;
     });
-    if (subEntries.length > 3) sub.push('…');
     return `{ ${sub.join(', ')} }`;
   }
   return escapeHtml(String(val));
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"');
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 type RelatedStep = {
@@ -111,7 +104,9 @@ const hasRunningTools = computed(() => {
 });
 
 function isToolExpanded(id: string): boolean {
-  return expandedToolIds.value.has(id);
+  // 默认展开，用户点击后可折叠
+  // expandedToolIds 存储的是用户主动折叠过的工具 ID
+  return !expandedToolIds.value.has(id);
 }
 
 function toggleTool(id: string) {
@@ -440,9 +435,7 @@ function formatToolPayload(raw?: string): ToolPayload {
     const full = JSON.stringify(parsed, null, 2);
 
     // 生成美化 HTML（用于旧版 tool-line 的 v-html）
-    const displayHtml = raw.length > TOOL_PAYLOAD_DISPLAY_LIMIT
-      ? jsonToPrettyHtml(raw) + "\n<!-- truncated -->"
-      : jsonToPrettyHtml(raw);
+    const displayHtml = jsonToPrettyHtml(raw);
 
     // 生成纯文本预览（用于新版 tool-bubble 的 pre 文本）
     const plain = jsonToPrettyPlain(parsed);
@@ -453,39 +446,36 @@ function formatToolPayload(raw?: string): ToolPayload {
       plain,
     };
   } catch {
-    // 不是 JSON，原样展示
-    const escaped = escapeHtml(raw);
-    const plain = raw.length > 160 ? raw.slice(0, 160) + '…' : raw;
+    // 不是 JSON，原样展示（不截断）
     return {
       full: raw,
-      display: escaped,
-      plain,
+      display: escapeHtml(raw),
+      plain: raw,
     };
   }
 }
 
 /**
- * 将 JSON 值转为纯文本预览（一行简洁展示）
+ * 将 JSON 值转为纯文本展示（完全展示，不截断）
  */
-function jsonToPrettyPlain(val: unknown, maxLen = 120): string {
+function jsonToPrettyPlain(val: unknown, maxDepth = 5): string {
   if (val === null) return 'null';
   if (typeof val === 'string') {
-    const text = val.length > maxLen ? val.slice(0, maxLen) + '…' : val;
-    return `"${text}"`;
+    return `"${val}"`;
   }
   if (typeof val === 'number' || typeof val === 'boolean') return String(val);
   if (Array.isArray(val)) {
     if (val.length === 0) return '[]';
-    const items = val.slice(0, 2).map(v => jsonToPrettyPlain(v, 40));
-    if (val.length > 2) items.push('…');
+    if (maxDepth <= 0) return '[…]';
+    const items = val.map(v => jsonToPrettyPlain(v, maxDepth - 1));
     return `[${items.join(', ')}]`;
   }
   if (typeof val === 'object') {
     const entries = Object.entries(val as Record<string, unknown>);
     if (entries.length === 0) return '{}';
-    const parts = entries.slice(0, 2).map(([k, v]) => `${k}=${jsonToPrettyPlain(v, 40)}`);
-    if (entries.length > 2) parts.push('…');
-    return parts.join(', ');
+    if (maxDepth <= 0) return '{…}';
+    const parts = entries.map(([k, v]) => `${k}=${jsonToPrettyPlain(v, maxDepth - 1)}`);
+    return `{ ${parts.join(', ')} }`;
   }
   return String(val);
 }

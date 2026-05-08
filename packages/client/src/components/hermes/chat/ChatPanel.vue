@@ -21,6 +21,7 @@ import ConversationMonitorPane from "./ConversationMonitorPane.vue";
 import MessageList from "./MessageList.vue";
 import SessionListItem from "./SessionListItem.vue";
 import DrawerPanel from "./DrawerPanel.vue";
+import SkillSidebar from "./SkillSidebar.vue";
 
 const chatStore = useChatStore();
 const sessionBrowserPrefsStore = useSessionBrowserPrefsStore();
@@ -31,6 +32,8 @@ const showDrawer = ref(false);
 const drawerActiveTab = ref<"terminal" | "files">("files");
 
 const currentMode = ref<"chat" | "live">("chat");
+const sidebarTab = ref<"sessions" | "skills">("sessions");
+const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null);
 
 // Batch selection mode
 const isBatchMode = ref(false);
@@ -437,6 +440,12 @@ async function handleWorkspaceConfirm() {
   }
   showWorkspaceModal.value = false;
 }
+
+function handleSkillInsert(skillName: string) {
+  if (!chatInputRef.value) return
+  chatInputRef.value.insertText(`/${skillName}`);
+  if (mobileQuery?.matches) showSessions.value = false;
+}
 </script>
 
 <template>
@@ -453,9 +462,22 @@ async function handleWorkspaceConfirm() {
       :class="{ collapsed: !showSessions }"
     >
       <div class="session-list-header">
-        <span v-if="showSessions" class="session-list-title">{{
-          t("chat.webUiSessions")
-        }}</span>
+        <div v-if="showSessions" class="sidebar-tabs">
+          <button
+            class="sidebar-tab"
+            :class="{ active: sidebarTab === 'sessions' }"
+            @click="sidebarTab = 'sessions'"
+          >
+            {{ t("chat.tabSessions") }}
+          </button>
+          <button
+            class="sidebar-tab"
+            :class="{ active: sidebarTab === 'skills' }"
+            @click="sidebarTab = 'skills'"
+          >
+            {{ t("chat.tabSkills") }}
+          </button>
+        </div>
         <div class="session-list-actions">
           <button class="session-close-btn" @click="showSessions = false">
             <svg
@@ -470,6 +492,14 @@ async function handleWorkspaceConfirm() {
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
+        </div>
+      </div>
+      <SkillSidebar
+        v-if="showSessions && sidebarTab === 'skills'"
+        @insert="handleSkillInsert"
+      />
+      <div v-if="showSessions && sidebarTab === 'sessions'" class="session-items">
+        <div class="session-footer">
           <NButton
             v-if="!isBatchMode"
             quaternary
@@ -556,6 +586,7 @@ async function handleWorkspaceConfirm() {
               </svg>
             </template>
           </NButton>
+          <div class="session-footer-spacer" />
           <NButton quaternary size="tiny" @click="handleNewChat" circle>
             <template #icon>
               <svg
@@ -572,8 +603,6 @@ async function handleWorkspaceConfirm() {
             </template>
           </NButton>
         </div>
-      </div>
-      <div v-if="showSessions" class="session-items">
         <div
           v-if="chatStore.isLoadingSessions && chatStore.sessions.length === 0"
           class="session-loading"
@@ -648,7 +677,7 @@ async function handleWorkspaceConfirm() {
           </template>
         </template>
       </div>
-    </aside>
+      </aside>
 
     <NDropdown
       placement="bottom-start"
@@ -782,7 +811,7 @@ async function handleWorkspaceConfirm() {
 
       <template v-if="currentMode === 'chat'">
         <MessageList />
-        <ChatInput />
+        <ChatInput ref="chatInputRef" />
       </template>
       <ConversationMonitorPane
         v-else
@@ -928,6 +957,37 @@ async function handleWorkspaceConfirm() {
   line-height: 22px;
 }
 
+.sidebar-tabs {
+  display: flex;
+  gap: 2px;
+  background: rgba(var(--accent-primary-rgb), 0.04);
+  border-radius: $radius-sm;
+  padding: 2px;
+}
+
+.sidebar-tab {
+  border: none;
+  background: none;
+  color: $text-muted;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all $transition-fast;
+  white-space: nowrap;
+
+  &:hover {
+    color: $text-secondary;
+  }
+
+  &.active {
+    color: $text-primary;
+    background: $bg-card;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  }
+}
+
 
 
 .session-group-header {
@@ -971,6 +1031,19 @@ async function handleWorkspaceConfirm() {
   flex: 1;
   overflow-y: auto;
   padding: 0 6px 12px;
+}
+
+.session-footer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border-top: 1px solid $border-light;
+  flex-shrink: 0;
+}
+
+.session-footer-spacer {
+  flex: 1;
 }
 
 .session-loading,

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { NInput } from 'naive-ui'
+import { NInput, useMessage } from 'naive-ui'
 import { fetchSkills, type SkillCategory, type SkillInfo } from '@/api/hermes/skills'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
+const message = useMessage()
 
 const emit = defineEmits<{
   insert: [skillName: string]
@@ -15,7 +16,12 @@ const archived = ref<SkillInfo[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
 const collapsedCategories = ref<Set<string>>(new Set())
+const archiveCollapsed = ref(true)
 const expandedSkills = ref<Set<string>>(new Set())
+
+function skillKey(catName: string, skill: { name: string }): string {
+  return `${catName}/${skill.name}`
+}
 
 const filteredCategories = computed(() => {
   let result = categories.value
@@ -54,12 +60,12 @@ function toggleCategory(name: string) {
   collapsedCategories.value = next
 }
 
-function toggleSkillExpand(skillName: string) {
+function toggleSkillExpand(key: string) {
   const next = new Set(expandedSkills.value)
-  if (next.has(skillName)) {
-    next.delete(skillName)
+  if (next.has(key)) {
+    next.delete(key)
   } else {
-    next.add(skillName)
+    next.add(key)
   }
   expandedSkills.value = next
 }
@@ -75,7 +81,7 @@ async function loadSkills() {
     categories.value = data.categories
     archived.value = data.archived
   } catch {
-    // silently fail — sidebar is auxiliary
+    message.error(t('skills.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -113,13 +119,14 @@ onMounted(loadSkills)
           <span class="category-count">{{ cat.skills.length }}</span>
         </button>
         <template v-if="!collapsedCategories.has(cat.name)">
-          <div v-for="skill in cat.skills" :key="skill.name" class="skill-item">
-            <button class="skill-main" @click="toggleSkillExpand(skill.name)">
-              <span class="source-dot" :class="`dot-${skill.source || 'local'}`" />
+          <div v-for="skill in cat.skills" :key="skillKey(cat.name, skill)" class="skill-item">
+            <button class="skill-main" @click="toggleSkillExpand(skillKey(cat.name, skill))">
+              <span class="source-dot" :class="`dot-${skill.source || 'local'}`"
+                :title="t(`skills.source.${skill.source || 'local'}`)" />
               <span class="skill-name">{{ skill.name }}</span>
               <svg v-if="skill.description" width="10" height="10" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" stroke-width="2" class="expand-chevron"
-                :class="{ expanded: expandedSkills.has(skill.name) }">
+                :class="{ expanded: expandedSkills.has(skillKey(cat.name, skill)) }">
                 <polyline points="6 9 12 15 18 9" />
               </svg>
             </button>
@@ -129,27 +136,33 @@ onMounted(loadSkills)
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
-            <div v-if="expandedSkills.has(skill.name) && skill.description" class="skill-description">
+            <div v-if="expandedSkills.has(skillKey(cat.name, skill)) && skill.description" class="skill-description">
               {{ skill.description }}
             </div>
           </div>
         </template>
       </div>
 
-      <div v-if="filteredArchived.length > 0" class="skill-category archive-section">
-        <button class="category-header archive-header" @click="toggleCategory('__archived__')">
+      <div v-if="filteredArchived.length > 0 || archived.length > 0" class="skill-category archive-section">
+        <button class="category-header archive-header" @click="archiveCollapsed = !archiveCollapsed">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            class="category-chevron" :class="{ collapsed: collapsedCategories.has('__archived__') }">
+            class="category-chevron" :class="{ collapsed: archiveCollapsed }">
             <polyline points="6 9 12 15 18 9" />
           </svg>
           <span class="category-name">{{ t('skills.archived') }}</span>
-          <span class="category-count">{{ filteredArchived.length }}</span>
+          <span class="category-count">{{ archived.length }}</span>
         </button>
-        <template v-if="!collapsedCategories.has('__archived__')">
-          <div v-for="skill in filteredArchived" :key="skill.name" class="skill-item skill-archived">
-            <button class="skill-main" @click="toggleSkillExpand(skill.name)">
-              <span class="source-dot" :class="`dot-${skill.source || 'local'}`" />
+        <template v-if="!archiveCollapsed">
+          <div v-for="skill in filteredArchived" :key="skillKey('.archive', skill)" class="skill-item skill-archived">
+            <button class="skill-main" @click="toggleSkillExpand(skillKey('.archive', skill))">
+              <span class="source-dot" :class="`dot-${skill.source || 'local'}`"
+                :title="t(`skills.source.${skill.source || 'local'}`)" />
               <span class="skill-name">{{ skill.name }}</span>
+              <svg v-if="skill.description" width="10" height="10" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" class="expand-chevron"
+                :class="{ expanded: expandedSkills.has(skillKey('.archive', skill)) }">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
             </button>
             <button class="skill-insert-btn" :title="t('chat.insertSkill')" @click="handleInsert(skill.name)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -157,7 +170,7 @@ onMounted(loadSkills)
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
-            <div v-if="expandedSkills.has(skill.name) && skill.description" class="skill-description">
+            <div v-if="expandedSkills.has(skillKey('.archive', skill)) && skill.description" class="skill-description">
               {{ skill.description }}
             </div>
           </div>
@@ -290,9 +303,9 @@ onMounted(loadSkills)
   flex-shrink: 0;
 }
 
-.dot-builtin { background: #888; }
-.dot-hub { background: #4a90d9; }
-.dot-local { background: #66bb6a; }
+.dot-builtin { background: $text-muted; }
+.dot-hub { background: $accent-primary; }
+.dot-local { background: $success; }
 
 .skill-name {
   overflow: hidden;
