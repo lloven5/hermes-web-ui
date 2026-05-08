@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
 import MessageItem from "./MessageItem.vue";
 import { useChatStore } from "@/stores/hermes/chat";
+import type { Message } from "@/stores/hermes/chat";
 
 const chatStore = useChatStore();
 const { t } = useI18n();
@@ -22,9 +23,105 @@ function formatToolDuration(seconds: number): string {
   return `${mins}m ${secs}s`
 }
 
-const displayMessages = computed(() =>
-  chatStore.messages.filter((m) => m.role !== "tool"),
-);
+// 按「一条 user + 本轮全部 tool + 本轮全部 assistant」聚合成单个回答块
+type RelatedStep =
+  | { id: string; type: "tool"; message: Message; timestamp: number; order: number }
+  | { id: string; type: "assistant"; message: Message; timestamp: number; order: number };
+
+const displayMessages = computed(() => {
+  const result: Array<{ message: Message; relatedTools: Message[]; relatedSteps: RelatedStep[] }> = [];
+
+  let currentUser: Message | null = null;
+  let turnTools: Message[] = [];
+  let turnAssistants: Message[] = [];
+
+  const flushTurn = () => {
+    if (!currentUser && turnTools.length === 0 && turnAssistants.length === 0) return;
+
+    if (currentUser) {
+      result.push({ message: currentUser, relatedTools: [], relatedSteps: [] });
+    }
+
+    if (turnTools.length > 0 || turnAssistants.length > 0) {
+      const lastAssistant = turnAssistants[turnAssistants.length - 1];
+      const mergedContent = turnAssistants
+        .map((m) => m.content || "")
+        .filter((c) => c.trim() !== "")
+        .join("\n\n");
+      const mergedReasoning = turnAssistants
+        .map((m) => m.reasoning || "")
+        .filter((r) => r.trim() !== "")
+        .join("\n\n");
+
+      const fallbackTs = turnTools[turnTools.length - 1]?.timestamp ?? Date.now();
+      const mergedAssistant: Message = lastAssistant
+        ? {
+            ...lastAssistant,
+            role: "assistant",
+            content: lastAssistant.content || mergedContent,
+            reasoning: mergedReasoning || undefined,
+            isStreaming: turnAssistants.some((m) => !!m.isStreaming),
+          }
+        : {
+            id: `assistant-from-tools-${turnTools[turnTools.length - 1]?.id || Date.now()}`,
+            role: "assistant",
+            content: "",
+            timestamp: fallbackTs,
+          };
+
+      const assistantBeforeFinal = turnAssistants.slice(0, Math.max(0, turnAssistants.length - 1));
+      const relatedSteps: RelatedStep[] = [
+        ...turnTools.map((m, i) => ({
+          id: `tool-${m.id}-${i}`,
+          type: "tool" as const,
+          message: m,
+          timestamp: m.timestamp,
+          order: i,
+        })),
+        ...assistantBeforeFinal.map((m, i) => ({
+          id: `assistant-${m.id}-${i}`,
+          type: "assistant" as const,
+          message: m,
+          timestamp: m.timestamp,
+          order: i,
+        })),
+      ].sort((a, b) => (a.timestamp === b.timestamp ? a.order - b.order : a.timestamp - b.timestamp));
+
+      result.push({
+        message: mergedAssistant,
+        relatedTools: [...turnTools],
+        relatedSteps,
+      });
+    }
+
+    currentUser = null;
+    turnTools = [];
+    turnAssistants = [];
+  };
+
+  for (const msg of chatStore.messages) {
+    if (msg.role === "user") {
+      flushTurn();
+      currentUser = msg;
+      continue;
+    }
+    if (msg.role === "tool") {
+      turnTools.push(msg);
+      continue;
+    }
+    if (msg.role === "assistant") {
+      turnAssistants.push(msg);
+      continue;
+    }
+
+    // system 等消息独立显示，不参与 turn 聚合
+    flushTurn();
+    result.push({ message: msg, relatedTools: [], relatedSteps: [] });
+  }
+
+  flushTurn();
+  return result;
+});
 
 const currentToolCalls = computed(() => {
   const msgs = chatStore.messages;
@@ -40,6 +137,75 @@ const currentToolCalls = computed(() => {
   const tools = msgs.filter((m, i) => m.role === "tool" && i > lastUserIdx);
   return [...tools].reverse();
 });
+
+const expandedToolCallIds = ref<Set<string>>(new Set());
+
+function hasToolCallDetails(tc: {
+  toolArgs?: string;
+  toolResult?: string;
+  toolPreview?: string;
+}): boolean {
+  return !!(tc.toolArgs || tc.toolResult || tc.toolPreview || tc.toolName);
+}
+
+function isToolCallExpanded(id: string): boolean {
+  return expandedToolCallIds.value.has(id);
+}
+
+function toggleToolCall(id: string) {
+  const next = new Set(expandedToolCallIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedToolCallIds.value = next;
+}
+
+function toolStatusText(status?: "running" | "done" | "error"): string {
+  if (status === "running") return "running";
+  if (status === "error") return "error";
+  return "done";
+}
+
+function toolIconEmoji(name?: string): string {
+  const n = (name || "").toLowerCase();
+  if (n.includes("search")) return "🔍";
+  if (n.includes("fetch") || n.includes("navigate") || n.includes("web")) return "🌐";
+  if (n.includes("read") || n.includes("file")) return "📄";
+  if (n.includes("bash") || n.includes("shell") || n.includes("run")) return "⚙️";
+  if (n.includes("skill")) return "🧩";
+  return "🛠";
+}
+
+function toolIconTheme(name?: string): string {
+  const n = (name || "").toLowerCase();
+  if (n.includes("search")) return "icon-search";
+  if (n.includes("fetch") || n.includes("navigate") || n.includes("web")) return "icon-web";
+  if (n.includes("read") || n.includes("file")) return "icon-file";
+  if (n.includes("bash") || n.includes("shell") || n.includes("run")) return "icon-code";
+  if (n.includes("skill")) return "icon-skill";
+  return "icon-default";
+}
+
+function buildToolDetailText(tc: {
+  toolName?: string;
+  toolStatus?: "running" | "done" | "error";
+  toolDuration?: number;
+  toolArgs?: string;
+  toolResult?: string;
+  toolPreview?: string;
+  content?: string;
+}): string {
+  const lines: string[] = [];
+  lines.push(`tool: ${tc.toolName || "tool"}`);
+  lines.push(`status: ${toolStatusText(tc.toolStatus)}`);
+  if (tc.toolDuration && tc.toolStatus !== "running") {
+    lines.push(`duration: ${formatToolDuration(tc.toolDuration)}`);
+  }
+  if (tc.toolPreview) lines.push(`preview: ${tc.toolPreview}`);
+  if (tc.toolArgs) lines.push(`args: ${tc.toolArgs}`);
+  if (tc.toolResult) lines.push(`result: ${tc.toolResult}`);
+  else if (tc.content) lines.push(`content: ${tc.content}`);
+  return lines.join("\n");
+}
 
 const queuedMessages = computed(() => {
   const sid = chatStore.activeSessionId;
@@ -140,167 +306,13 @@ watch(currentToolCalls, () => {
       <p>{{ t("chat.emptyState") }}</p>
     </div>
     <MessageItem
-      v-for="msg in displayMessages"
-      :key="msg.id"
-      :message="msg"
-      :highlight="chatStore.focusMessageId === msg.id"
+      v-for="{ message, relatedTools, relatedSteps } in displayMessages"
+      :key="message.id"
+      :message="message"
+      :highlight="chatStore.focusMessageId === message.id"
+      :related-tools="relatedTools"
+      :related-steps="relatedSteps"
     />
-    <Transition name="fade">
-      <div v-if="chatStore.isRunActive || chatStore.abortState" class="streaming-indicator">
-        <div v-if="currentToolCalls.length > 0 || chatStore.compressionState || chatStore.abortState" class="tool-calls-panel">
-          <!-- Abort indicator -->
-          <div v-if="chatStore.abortState" class="tool-call-item compression-item">
-            <svg
-              v-if="chatStore.abortState.aborting"
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              class="tool-call-icon"
-            >
-              <path d="M10 9v6m4-6v6M5 5h14v14H5z" />
-            </svg>
-            <svg
-              v-else
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              class="tool-call-icon"
-            >
-              <path d="M5 13l4 4L19 7" />
-            </svg>
-            <span class="tool-call-name">
-              {{
-                chatStore.abortState.aborting
-                  ? 'Pausing... waiting for the run to stop and sync'
-                  : chatStore.abortState.synced
-                    ? 'Paused and synced'
-                    : 'Paused'
-              }}
-            </span>
-            <span
-              v-if="chatStore.abortState.aborting"
-              class="tool-call-spinner"
-            ></span>
-          </div>
-          <!-- Compression indicator -->
-          <div v-if="chatStore.compressionState" class="tool-call-item compression-item">
-            <svg
-              v-if="chatStore.compressionState.compressing"
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              class="tool-call-icon"
-            >
-              <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            <svg
-              v-else-if="chatStore.compressionState.compressed"
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              class="tool-call-icon"
-            >
-              <path d="M5 13l4 4L19 7" />
-            </svg>
-            <span class="tool-call-name">
-              {{
-                chatStore.compressionState.compressing
-                  ? `Compressing... (${chatStore.compressionState.messageCount} msgs, ~${formatTokens(chatStore.compressionState.beforeTokens)} tokens)`
-                  : chatStore.compressionState.compressed
-                    ? `Compressed ${chatStore.compressionState.messageCount} msgs: ~${formatTokens(chatStore.compressionState.beforeTokens)} → ~${formatTokens(chatStore.compressionState.afterTokens)} tokens`
-                    : `Compression skipped`
-              }}
-            </span>
-            <span
-              v-if="chatStore.compressionState.compressing"
-              class="tool-call-spinner"
-            ></span>
-          </div>
-          <!-- Tool calls -->
-          <div
-            v-for="tc in currentToolCalls"
-            :key="tc.id"
-            class="tool-call-item"
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              class="tool-call-icon"
-            >
-              <path
-                d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
-              />
-            </svg>
-            <span class="tool-call-name">{{ tc.toolName }}</span>
-            <span v-if="tc.toolPreview" class="tool-call-preview">{{
-              tc.toolPreview
-            }}</span>
-            <span
-              v-if="tc.toolDuration && tc.toolStatus !== 'running'"
-              class="tool-call-duration"
-              :title="$t('chat.executionDuration')"
-            >{{ formatToolDuration(tc.toolDuration) }}</span
-            >
-            <svg
-              v-if="tc.toolStatus === 'done'"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              class="tool-call-success-icon"
-            >
-              <circle cx="12" cy="12" r="10" fill="currentColor" fill-opacity="0.15"/>
-              <path
-                d="M8 12L11 15L16 9"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                fill="none"
-              />
-            </svg>
-            <span
-              v-if="tc.toolStatus === 'running'"
-              class="tool-call-spinner"
-            ></span>
-            <svg
-              v-if="tc.toolStatus === 'error'"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              class="tool-call-error-icon"
-            >
-              <circle cx="12" cy="12" r="10" fill="currentColor" fill-opacity="0.15"/>
-              <path
-                d="M15 9L9 15M9 9L15 15"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                fill="none"
-              />
-            </svg>
-          </div>
-        </div>
-      </div>
-    </Transition>
     <Transition name="queue-float">
       <div v-if="queuedMessages.length > 0" class="queue-float-panel">
         <div class="queue-float-header">
@@ -587,15 +599,17 @@ watch(currentToolCalls, () => {
 .streaming-indicator {
   display: flex;
   align-items: flex-start;
+  width: 100%;
   padding: 4px;
 }
 
 .tool-calls-panel {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-height: 213px;
-  overflow-y: auto;
+  gap: 6px;
+  width: min(100%, 680px);
+  max-height: none;
+  overflow: visible;
   padding-top: 4px;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -605,17 +619,29 @@ watch(currentToolCalls, () => {
 }
 
 .tool-call-item {
+  --tool-bg: #16181c;
+  --tool-bg-2: #1e2026;
+  --tool-border: #2a2d35;
+  --tool-border-light: #343840;
+  --tool-text: #e8eaf0;
+  --tool-subtext: #8b8fa8;
+  --tool-muted: #555870;
+
   display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: $text-secondary;
-  padding: 3px 8px;
-  background: rgba(0, 0, 0, 0.03);
-  border-radius: $radius-sm;
+  flex-direction: column;
+  font-size: 12px;
+  color: var(--tool-subtext);
+  background: #16181c;
+  border: 1px solid var(--tool-border);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
 
   .dark & {
-    background: rgba(255, 255, 255, 0.06);
+    background: #16181c;
   }
 
   &.compression-item {
@@ -623,23 +649,185 @@ watch(currentToolCalls, () => {
     font-size: 10px;
   }
 
-  .tool-call-icon {
-    flex-shrink: 0;
-    color: $text-muted;
+  &.expandable {
+    cursor: pointer;
+
+    &:hover {
+      border-color: var(--tool-border-light);
+    }
+  }
+}
+
+.tool-call-header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 13px;
+  min-height: 44px;
+}
+
+.tool-call-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+
+  &.icon-search {
+    background: #1a2744;
+    color: #4f8ef7;
   }
 
-  .tool-call-name {
-    font-family: $font-code;
-    flex-shrink: 0;
+  &.icon-web {
+    background: #1d2e27;
+    color: #3ecf8e;
   }
 
-  .tool-call-preview {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 300px;
-    color: $text-muted;
+  &.icon-code {
+    background: #27213a;
+    color: #a78bfa;
   }
+
+  &.icon-file {
+    background: #2e2314;
+    color: #f5a623;
+  }
+
+  &.icon-skill {
+    background: #221d30;
+    color: #a78bfa;
+  }
+
+  &.icon-default {
+    background: #23252b;
+    color: #8b8fa8;
+  }
+}
+
+.tool-call-name {
+  font-family: $font-code;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tool-text);
+  flex: 1;
+  min-width: 0;
+}
+
+.tool-call-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+  color: var(--tool-subtext);
+  font-size: 11px;
+}
+
+.tool-call-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: $font-code;
+  font-size: 11px;
+}
+
+.status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+
+  &.running {
+    background: #f5a623;
+    animation: tool-status-pulse 1.2s ease-in-out infinite;
+  }
+
+  &.done {
+    background: #3ecf8e;
+  }
+
+  &.error {
+    background: #f06292;
+  }
+}
+
+.status-label {
+  color: var(--tool-subtext);
+  text-transform: lowercase;
+}
+
+.tool-call-chevron {
+  color: var(--tool-muted);
+  font-size: 10px;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tool-call-item.open .tool-call-chevron {
+  transform: rotate(180deg);
+}
+
+.tool-call-body {
+  display: block;
+  border-top: 1px solid var(--tool-border);
+  animation: tool-body-in 0.18s ease;
+}
+
+.tool-call-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 13px 11px;
+}
+
+.tool-call-detail + .tool-call-detail {
+  border-top: 1px solid var(--tool-border);
+}
+
+.tool-call-label {
+  font-family: $font-code;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tool-muted);
+}
+
+.tool-call-code {
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--tool-border);
+  background: var(--tool-bg-2);
+  color: var(--tool-subtext);
+  font-family: $font-code;
+  font-size: 11.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+
+  &.running::after {
+    content: "▋";
+    color: #4f8ef7;
+    animation: blink 0.8s step-end infinite;
+    margin-left: 2px;
+  }
+}
+
+.tool-call-progress-bar {
+  height: 2px;
+  background: var(--tool-border);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.tool-call-progress-fill {
+  display: block;
+  height: 100%;
+  width: 35%;
+  background: linear-gradient(90deg, #4f8ef7, #a78bfa);
+  animation: tool-progress 1.6s ease-in-out infinite;
 }
 
 .tool-call-spinner {
@@ -662,10 +850,10 @@ watch(currentToolCalls, () => {
 }
 
 .tool-call-duration {
-  font-size: 10px;
-  color: $text-muted;
+  font-size: 10.5px;
+  color: var(--tool-muted);
   font-family: $font-code;
-  margin-left: 4px;
+  margin-left: 2px;
   flex-shrink: 0;
 }
 
@@ -681,6 +869,48 @@ watch(currentToolCalls, () => {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes tool-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(340%);
+  }
+}
+
+@keyframes tool-status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.75);
+  }
+}
+
+@keyframes tool-body-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 </style>

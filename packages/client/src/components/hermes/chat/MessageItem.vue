@@ -16,14 +16,179 @@ import {
   renderHighlightedCodeBlock,
 } from "./highlight";
 import { useGlobalSpeech } from "@/composables/useSpeech";
+import { formatToolDuration } from "@/utils/duration";
 
 const TOOL_PAYLOAD_DISPLAY_LIMIT = 2000;
 
-const props = defineProps<{ message: Message; highlight?: boolean }>();
+/**
+ * 将 JSON 字符串转美化后的 HTML 展示（带语法高亮 class）
+ * 例：{"query": "hello", "count": 3}
+ * → <span class="param-key">"query"</span>: <span class="param-str">"hello"</span>
+ *   <span class="param-key">"count"</span>: <span class="param-num">3</span>
+ */
+function jsonToPrettyHtml(raw: string): string {
+  try {
+    const obj = JSON.parse(raw);
+    if (typeof obj !== 'object' || obj === null) return '';
+    const entries = Object.entries(obj);
+    if (entries.length === 0) return '';
+    return entries.map(([key, value]) => {
+      const keyHtml = `<span class="param-key">"${escapeHtml(key)}"</span>`;
+      const valHtml = formatJsonValueHtml(value);
+      return `${keyHtml}: ${valHtml}`;
+    }).join('\n');
+  } catch {
+    // 非 JSON 文本，直接展示，但做 HTML 转义
+    return escapeHtml(raw);
+  }
+}
+
+/** 递归格式化 JSON 值 → HTML */
+function formatJsonValueHtml(val: unknown): string {
+  if (val === null) return `<span class="param-keyword">null</span>`;
+  if (typeof val === 'string') {
+    // 对长字符串做截断
+    const maxInline = 160;
+    const text = val.length > maxInline ? val.slice(0, maxInline) + '…' : val;
+    return `<span class="param-str">"${escapeHtml(text)}"</span>`;
+  }
+  if (typeof val === 'number') {
+    return `<span class="param-num">${val}</span>`;
+  }
+  if (typeof val === 'boolean') {
+    return `<span class="param-keyword">${val}</span>`;
+  }
+  if (Array.isArray(val)) {
+    if (val.length === 0) return `<span class="param-keyword">[]</span>`;
+    // 简单数组展示前几个
+    const items = val.slice(0, 3).map(v => formatJsonValueHtml(v));
+    if (val.length > 3) items.push('…');
+    return `[${items.join(', ')}]`;
+  }
+  if (typeof val === 'object') {
+    const subEntries = Object.entries(val as Record<string, unknown>);
+    if (subEntries.length === 0) return `<span class="param-keyword">{}</span>`;
+    // 嵌套对象只展示前 3 个 key
+    const sub = subEntries.slice(0, 3).map(([k, v]) => {
+      return `<span class="param-key">"${escapeHtml(k)}"</span>: ${formatJsonValueHtml(v)}`;
+    });
+    if (subEntries.length > 3) sub.push('…');
+    return `{ ${sub.join(', ')} }`;
+  }
+  return escapeHtml(String(val));
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"');
+}
+
+type RelatedStep = {
+  id: string;
+  type: "tool" | "assistant";
+  message: Message;
+  timestamp: number;
+  order: number;
+};
+
+const props = defineProps<{ message: Message; highlight?: boolean; relatedTools?: Message[]; relatedSteps?: RelatedStep[] }>();
 const { t } = useI18n();
 const toast = useMessage();
 
 const isSystem = computed(() => props.message.role === "system");
+
+// 工具调用相关
+const expandedToolIds = ref<Set<string>>(new Set());
+
+const relatedToolCalls = computed(() => {
+  // 从 props 获取关联的工具调用，或通过消息索引关联
+  return props.relatedTools || [];
+});
+
+const relatedSteps = computed(() => props.relatedSteps || []);
+
+const hasRunningTools = computed(() => {
+  return relatedToolCalls.value.some(tc => tc.toolStatus === "running");
+});
+
+function isToolExpanded(id: string): boolean {
+  return expandedToolIds.value.has(id);
+}
+
+function toggleTool(id: string) {
+  const next = new Set(expandedToolIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedToolIds.value = next;
+}
+
+function toolIconEmoji(name?: string): string {
+  const n = (name || "").toLowerCase();
+  if (n.includes("search")) return "🔍";
+  if (n.includes("fetch") || n.includes("navigate") || n.includes("web")) return "🌐";
+  if (n.includes("read")) return "📄";
+  if (n.includes("terminal") || n.includes("bash") || n.includes("shell") || n.includes("run") || n.includes("code")) return "⚙️";
+  if (n.includes("skill")) return "🧩";
+  return "🛠";
+}
+
+function toolIconTheme(name?: string): string {
+  const n = (name || "").toLowerCase();
+  if (n.includes("search")) return "icon-search";
+  if (n.includes("fetch") || n.includes("navigate") || n.includes("web")) return "icon-web";
+  if (n.includes("read")) return "icon-file";
+  if (n.includes("terminal") || n.includes("bash") || n.includes("shell") || n.includes("run") || n.includes("code")) return "icon-code";
+  if (n.includes("skill")) return "icon-skill";
+  return "icon-default";
+}
+
+function toolStatusText(status?: "running" | "done" | "error"): string {
+  if (status === "running") return "running";
+  if (status === "error") return "error";
+  return "done";
+}
+
+function toolStatusClass(status?: "running" | "done" | "error"): string {
+  if (status === "running") return "running";
+  if (status === "error") return "error";
+  return "done";
+}
+
+function isLikelyUrl(value?: string): boolean {
+  if (!value) return false;
+  return /^https?:\/\//i.test(value.trim());
+}
+
+function deriveToolInput(tc: Message): string {
+  if (tc.toolArgs && tc.toolArgs.trim()) {
+    // 使用美化后的纯文本展示
+    return formatToolPayload(tc.toolArgs).plain;
+  }
+
+  const name = (tc.toolName || "").toLowerCase();
+  if ((name.includes("navigate") || name.includes("fetch") || name.includes("search")) && isLikelyUrl(tc.toolPreview)) {
+    return tc.toolPreview!;
+  }
+
+  if (tc.toolPreview && tc.toolPreview.trim()) return tc.toolPreview;
+  // 流式进行中但尚无 toolArgs 时显示友好占位
+  if (tc.toolStatus === 'running') return '等待输入参数...';
+  // 流式已完成但 DB 补全尚未完成时显示
+  if (tc.toolStatus === 'done' || tc.toolStatus === 'error') return '';
+  return tc.toolName || "No input payload";
+}
+
+function deriveToolOutput(tc: Message): string {
+  if (tc.toolResult && tc.toolResult.trim()) {
+    // 使用美化后的纯文本展示
+    return formatToolPayload(tc.toolResult).plain;
+  }
+  // 仅在运行中回退到 preview（通常是中间进度文案）
+  if (tc.toolStatus === "running" && tc.toolPreview && tc.toolPreview.trim()) return tc.toolPreview;
+  if (tc.toolStatus === "error") return "";
+  if (tc.toolStatus === "done") return "";
+  if (tc.toolStatus === "running") return "等待执行结果...";
+  return "";
+}
 
 // Parse ContentBlock[] from JSON string
 const contentBlocks = computed(() => {
@@ -253,34 +418,76 @@ function handleAttachmentDownload(att: { name: string; url: string; type: string
 
 type ToolPayload = {
   full: string;
-  display: string;
+  display: string;        // 美化后的 HTML（用于 v-html）
+  plain: string;          // 纯文本预览（用于新版气泡）
   language?: string;
 };
 
+/**
+ * 将工具参数/结果的原始数据格式化为友好展示
+ * - JSON 对象 → 带语法高亮的键值对 HTML（用于旧版 tool-line）
+ * - JSON 对象 → 简洁纯文本（用于新版 tool-bubble）
+ * - 非 JSON → 原样返回
+ */
 function formatToolPayload(raw?: string): ToolPayload {
   if (!raw) {
-    return { full: "", display: "" };
+    return { full: "", display: "", plain: "" };
   }
 
+  // 尝试解析 JSON
   try {
-    const full = JSON.stringify(JSON.parse(raw), null, 2);
+    const parsed = JSON.parse(raw);
+    const full = JSON.stringify(parsed, null, 2);
+
+    // 生成美化 HTML（用于旧版 tool-line 的 v-html）
+    const displayHtml = raw.length > TOOL_PAYLOAD_DISPLAY_LIMIT
+      ? jsonToPrettyHtml(raw) + "\n<!-- truncated -->"
+      : jsonToPrettyHtml(raw);
+
+    // 生成纯文本预览（用于新版 tool-bubble 的 pre 文本）
+    const plain = jsonToPrettyPlain(parsed);
+
     return {
       full,
-      display:
-        full.length > TOOL_PAYLOAD_DISPLAY_LIMIT
-          ? full.slice(0, TOOL_PAYLOAD_DISPLAY_LIMIT) + "\n" + t("chat.truncated")
-          : full,
-      language: "json",
+      display: displayHtml,
+      plain,
     };
   } catch {
+    // 不是 JSON，原样展示
+    const escaped = escapeHtml(raw);
+    const plain = raw.length > 160 ? raw.slice(0, 160) + '…' : raw;
     return {
       full: raw,
-      display:
-        raw.length > TOOL_PAYLOAD_DISPLAY_LIMIT
-          ? raw.slice(0, TOOL_PAYLOAD_DISPLAY_LIMIT) + "\n" + t("chat.truncated")
-          : raw,
+      display: escaped,
+      plain,
     };
   }
+}
+
+/**
+ * 将 JSON 值转为纯文本预览（一行简洁展示）
+ */
+function jsonToPrettyPlain(val: unknown, maxLen = 120): string {
+  if (val === null) return 'null';
+  if (typeof val === 'string') {
+    const text = val.length > maxLen ? val.slice(0, maxLen) + '…' : val;
+    return `"${text}"`;
+  }
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  if (Array.isArray(val)) {
+    if (val.length === 0) return '[]';
+    const items = val.slice(0, 2).map(v => jsonToPrettyPlain(v, 40));
+    if (val.length > 2) items.push('…');
+    return `[${items.join(', ')}]`;
+  }
+  if (typeof val === 'object') {
+    const entries = Object.entries(val as Record<string, unknown>);
+    if (entries.length === 0) return '{}';
+    const parts = entries.slice(0, 2).map(([k, v]) => `${k}=${jsonToPrettyPlain(v, 40)}`);
+    if (entries.length > 2) parts.push('…');
+    return parts.join(', ');
+  }
+  return String(val);
 }
 
 function renderToolPayload(content: string, language?: string): string {
@@ -350,6 +557,37 @@ const hasToolDetails = computed(
   () => !!(props.message.toolArgs || props.message.toolResult),
 );
 
+const toolStatusLabel = computed(() => {
+  if (props.message.toolStatus === "running") return "running";
+  if (props.message.toolStatus === "error") return "error";
+  return "done";
+});
+
+const isSkillTool = computed(() => {
+  const name = (props.message.toolName || "").toLowerCase();
+  return name.includes("skill");
+});
+
+const toolIcon = computed(() => {
+  const name = (props.message.toolName || "").toLowerCase();
+  if (name.includes("search")) return "🔍";
+  if (name.includes("fetch") || name.includes("web")) return "🌐";
+  if (name.includes("read")) return "📄";
+  if (name.includes("bash") || name.includes("shell") || name.includes("run")) return "⚙️";
+  if (name.includes("skill")) return "🧩";
+  return "🛠️";
+});
+
+const toolIconClass = computed(() => {
+  const name = (props.message.toolName || "").toLowerCase();
+  if (name.includes("search")) return "icon-search";
+  if (name.includes("fetch") || name.includes("web")) return "icon-web";
+  if (name.includes("read")) return "icon-file";
+  if (name.includes("bash") || name.includes("shell") || name.includes("run")) return "icon-code";
+  if (name.includes("skill")) return "icon-skill";
+  return "icon-default";
+});
+
 const toolArgsPayload = computed(() => formatToolPayload(props.message.toolArgs));
 const toolResultPayload = computed(() => formatToolPayload(props.message.toolResult));
 
@@ -358,20 +596,19 @@ const formattedToolArgs = computed(() => toolArgsPayload.value.display);
 const fullToolResult = computed(() => toolResultPayload.value.full);
 const formattedToolResult = computed(() => toolResultPayload.value.display);
 
+const toolArgsPlain = computed(() => toolArgsPayload.value.plain);
+const toolResultPlain = computed(() => toolResultPayload.value.plain);
+
+// 旧版 tool-line：美化后的 HTML key-value（跳过 highlight，直接 v-html）
 const renderedToolArgs = computed(() => {
   if (!formattedToolArgs.value) return "";
-  return renderToolPayload(
-    formattedToolArgs.value,
-    toolArgsPayload.value.language,
-  );
+  // display 已经是 jsonToPrettyHtml 生成的美化 HTML
+  return `<div class="pretty-param-block">${formattedToolArgs.value}</div>`;
 });
 
 const renderedToolResult = computed(() => {
   if (!formattedToolResult.value) return "";
-  return renderToolPayload(
-    formattedToolResult.value,
-    toolResultPayload.value.language,
-  );
+  return `<div class="pretty-param-block">${formattedToolResult.value}</div>`;
 });
 
 // 语音播放相关
@@ -463,69 +700,172 @@ onBeforeUnmount(() => {
     <template v-if="message.role === 'tool'">
       <div
         class="tool-line"
-        :class="{ expandable: hasToolDetails }"
+        :class="[{ expandable: hasToolDetails || message.toolStatus === 'running' }, { 'skill-tool': isSkillTool }]"
         @click="hasToolDetails && (toolExpanded = !toolExpanded)"
       >
-        <svg
-          v-if="hasToolDetails"
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          class="tool-chevron"
-          :class="{ rotated: toolExpanded }"
-        >
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
-        <svg
-          v-else
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.5"
-          class="tool-icon"
-        >
-          <path
-            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
-          />
-        </svg>
+        <span class="tool-icon-badge" :class="toolIconClass">{{ toolIcon }}</span>
         <span class="tool-name">{{ message.toolName }}</span>
-        <span
-          v-if="message.toolPreview && !toolExpanded"
-          class="tool-preview"
-          >{{ message.toolPreview }}</span
-        >
-        <span
-          v-if="message.toolStatus === 'running'"
-          class="tool-spinner"
-        ></span>
-        <span v-if="message.toolStatus === 'error'" class="tool-error-badge">{{
-          t("chat.error")
-        }}</span>
+        <span class="tool-status-inline">
+          <span class="status-dot" :class="toolStatusLabel"></span>
+          <span class="status-label">{{ toolStatusLabel }}</span>
+        </span>
+        <span v-if="message.toolPreview && !toolExpanded" class="tool-preview">{{ message.toolPreview }}</span>
+        <span v-if="hasToolDetails || message.toolStatus === 'running'" class="tool-chevron" :class="{ rotated: toolExpanded }">▾</span>
       </div>
-      <div v-if="toolExpanded && hasToolDetails" class="tool-details" @click="handleToolDetailClick">
+      <div v-if="toolExpanded && (hasToolDetails || message.toolStatus === 'running')" class="tool-details" @click="handleToolDetailClick">
+        <div v-if="message.toolStatus === 'running'" class="tool-detail-section">
+          <div class="tool-progress-bar"><span class="tool-progress-fill"></span></div>
+          <div class="tool-streaming-text">{{ message.toolPreview || "Running..." }}</div>
+        </div>
         <div v-if="formattedToolArgs" class="tool-detail-section" data-copy-source="tool-args">
           <div class="tool-detail-label">{{ t("chat.arguments") }}</div>
           <div class="tool-detail-code-block" v-html="renderedToolArgs"></div>
         </div>
         <div v-if="formattedToolResult" class="tool-detail-section" data-copy-source="tool-result">
           <div class="tool-detail-label">{{ t("chat.result") }}</div>
-          <div class="tool-detail-code-block" v-html="renderedToolResult"></div>
+          <div class="tool-detail-code-block" :class="{ 'result-error': message.toolStatus === 'error', 'result-success': message.toolStatus !== 'error' }" v-html="renderedToolResult"></div>
+        </div>
+      </div>
+    </template>
+    <template v-else-if="message.role === 'assistant'">
+      <!-- 新的 assistant 结构：工具卡片 + 回复框 -->
+      <div class="assistant-row">
+        <div class="assistant-avatar">✦</div>
+        <div class="assistant-content">
+          <!-- 过程小框：按真实顺序展示工具 + 中间说明 -->
+          <div v-if="relatedSteps.length > 0" class="process-box">
+            <div class="process-title">Process</div>
+            <div class="process-list">
+              <template v-for="step in relatedSteps" :key="step.id">
+                <div v-if="step.type === 'assistant'" class="process-note">
+                  {{ step.message.content }}
+                </div>
+                <div
+                  v-else
+                  class="tool-bubble"
+                  :class="[toolIconTheme(step.message.toolName), { open: isToolExpanded(step.message.id) }]"
+                >
+                  <div class="tool-header" @click="toggleTool(step.message.id)">
+                    <span class="tool-icon" :class="toolIconTheme(step.message.toolName)">{{ toolIconEmoji(step.message.toolName) }}</span>
+                    <span class="tool-name">{{ step.message.toolName }}</span>
+                    <div class="tool-status">
+                      <span class="status-dot" :class="toolStatusClass(step.message.toolStatus)"></span>
+                      <span class="status-label">{{ toolStatusText(step.message.toolStatus) }}</span>
+                      <span v-if="step.message.toolDuration && step.message.toolStatus !== 'running'" class="duration">{{ formatDuration(step.message.toolDuration) }}</span>
+                    </div>
+                    <span class="chevron">▾</span>
+                  </div>
+                  <div class="tool-divider"></div>
+                  <div class="tool-body">
+                    <div class="tool-body-inner">
+                      <div class="tool-section">
+                        <div class="section-label">Input</div>
+                        <pre class="param-block">{{ deriveToolInput(step.message) }}</pre>
+                      </div>
+                      <div class="tool-section">
+                        <div class="section-label">Output</div>
+                        <div v-if="step.message.toolStatus === 'running'" class="progress-bar">
+                          <span class="progress-fill"></span>
+                        </div>
+                        <pre class="result-block" :class="{ 'stream-text': step.message.toolStatus === 'running', 'success': step.message.toolStatus === 'done', 'error-r': step.message.toolStatus === 'error' }">{{ deriveToolOutput(step.message) }}</pre>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- 回复内容框 -->
+          <div class="reply-block">
+            <div v-if="hasAttachments" class="msg-attachments">
+              <div
+                v-for="att in message.attachments"
+                :key="att.id"
+                class="msg-attachment"
+                :class="{ image: isImage(att.type) }"
+              >
+                <template v-if="isImage(att.type) && att.url">
+                  <img
+                    :src="att.url"
+                    :alt="att.name"
+                    class="msg-attachment-thumb"
+                    @click="previewUrl = att.url"
+                  />
+                </template>
+                <template v-else>
+                  <div class="msg-attachment-file" @click="handleAttachmentDownload(att)" style="cursor: pointer;" :title="t('download.downloadFile')">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    <span class="att-name">{{ att.name }}</span>
+                    <span class="att-size">{{ formatSize(att.size) }}</span>
+                  </div>
+                </template>
+              </div>
+            </div>
+            <div
+              v-if="hasThinking"
+              class="thinking-block"
+              :class="{ expanded: thinkingExpanded }"
+            >
+              <div class="thinking-header" @click="toggleThinking">
+                <span class="thinking-icon">💭</span>
+                <span class="thinking-label">{{ thinkingStreamingNow ? t('chat.thinkingInProgress') : t('chat.thinkingLabel') }}</span>
+                <span v-if="thinkingDurationMs !== null && thinkingDurationMs > 0" class="thinking-meta">· {{ formatDuration(thinkingDurationMs) }}</span>
+                <span class="thinking-meta">· {{ thinkingCharCount }}</span>
+              </div>
+              <div v-if="thinkingExpanded" class="thinking-body">
+                <MarkdownRenderer :content="thinkingFullText" />
+              </div>
+            </div>
+            <MarkdownRenderer
+              v-if="parsedThinking.body"
+              :content="parsedThinking.body"
+            />
+            <MarkdownRenderer
+              v-else-if="message.content"
+              :content="message.content"
+            />
+            <span v-if="message.isStreaming && !message.content && !hasRunningTools" class="streaming-dots">
+              <span></span><span></span><span></span>
+            </span>
+          </div>
+
+          <!-- 操作栏 -->
+          <div class="action-bar">
+            <button
+              v-if="canPlaySpeech"
+              class="action-btn"
+              :class="{ playing: isPlayingThisMessage, paused: isPausedThisMessage }"
+              @click="handleSpeechToggle"
+            >
+              <svg v-if="!isPlayingThisMessage || isPausedThisMessage" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="5 3 19 12 5 21 5 3"/>
+              </svg>
+              <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="6" y="4" width="4" height="16"/>
+                <rect x="14" y="4" width="4" height="16"/>
+              </svg>
+            </button>
+            <button
+              v-if="copyableContent"
+              class="action-btn"
+              @click="copyBubbleContent"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+            </button>
+            <span class="message-time">{{ timeStr }}</span>
+          </div>
         </div>
       </div>
     </template>
     <template v-else>
       <div class="msg-body">
-        <img
-          v-if="message.role === 'assistant'"
-          src="/logo.png"
-          alt="Hermes"
-          class="msg-avatar"
-        />
         <div class="msg-content" :class="message.role">
           <div class="message-bubble" :class="{ system: isSystem, 'speech-playing': isPlayingThisMessage && !isPausedThisMessage }">
             <div v-if="hasAttachments" class="msg-attachments">
@@ -1052,50 +1392,117 @@ onBeforeUnmount(() => {
 .tool-line {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: $text-muted;
-  padding: 2px 4px;
-  border-radius: $radius-sm;
+  gap: 8px;
+  font-size: 12px;
+  color: $text-secondary;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid $border-light;
+  background: rgba(0, 0, 0, 0.02);
 
   &.expandable {
     cursor: pointer;
 
     &:hover {
-      background: rgba(0, 0, 0, 0.03);
+      border-color: rgba(var(--accent-primary-rgb), 0.3);
     }
+  }
+
+  &.skill-tool {
+    border-left: 2px solid #8b5cf6;
   }
 
   .tool-name {
     font-family: $font-code;
     flex-shrink: 0;
+    color: $text-primary;
   }
 
   .tool-preview {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 400px;
+    max-width: 300px;
+    color: $text-muted;
+  }
+
+  .tool-status-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+
+    .status-label {
+      font-size: 10px;
+      color: $text-muted;
+      text-transform: lowercase;
+    }
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+
+    &.running {
+      background: #f59e0b;
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    &.done {
+      background: #22c55e;
+    }
+
+    &.error {
+      background: #ef4444;
+    }
   }
 }
 
 .tool-chevron {
   flex-shrink: 0;
-  transition: transform 0.15s ease;
+  color: $text-muted;
+  transition: transform 0.2s ease;
 
   &.rotated {
     transform: rotate(90deg);
   }
 }
 
-.tool-spinner {
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid $text-muted;
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
+.tool-icon-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
   flex-shrink: 0;
+}
+
+.icon-search {
+  background: #1a2744;
+}
+
+.icon-web {
+  background: #1d2e27;
+}
+
+.icon-file {
+  background: #2e2314;
+}
+
+.icon-code {
+  background: #27213a;
+}
+
+.icon-skill {
+  background: #221d30;
+}
+
+.icon-default {
+  background: rgba(0, 0, 0, 0.08);
 }
 
 .tool-error-badge {
@@ -1109,14 +1516,19 @@ onBeforeUnmount(() => {
 }
 
 .tool-details {
-  margin-left: 16px;
-  margin-top: 2px;
-  border-left: 2px solid $border-light;
-  padding-left: 10px;
+  margin-top: 6px;
+  border: 1px solid $border-light;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .tool-detail-section {
-  margin-bottom: 6px;
+  padding: 8px 12px;
+}
+
+.tool-detail-section + .tool-detail-section {
+  border-top: 1px solid $border-light;
 }
 
 .tool-detail-label {
@@ -1139,16 +1551,62 @@ onBeforeUnmount(() => {
 
   :deep(code.hljs) {
     font-size: 11px;
-    max-height: 300px;
+    max-height: 260px;
     overflow-y: auto;
     white-space: pre-wrap;
     word-break: break-word;
   }
 }
 
+.tool-progress-bar {
+  height: 2px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.tool-progress-fill {
+  display: block;
+  height: 100%;
+  width: 35%;
+  background: linear-gradient(90deg, var(--accent-primary), #8b5cf6);
+  animation: progress-run 1.6s ease-in-out infinite;
+}
+
+.tool-streaming-text {
+  font-family: $font-code;
+  font-size: 11px;
+  color: $text-secondary;
+
+  &::after {
+    content: "▋";
+    color: var(--accent-primary);
+    animation: blink 0.8s step-end infinite;
+    margin-left: 2px;
+  }
+}
+
+.result-success {
+  border-left: 2px solid #22c55e;
+}
+
+.result-error {
+  border-left: 2px solid #ef4444;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes progress-run {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(340%);
   }
 }
 
@@ -1232,6 +1690,462 @@ onBeforeUnmount(() => {
 
   .message.system .msg-body {
     max-width: 100%;
+  }
+}
+
+/* ===== 新的 Assistant 结构（参考 tool.html） ===== */
+.assistant-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.assistant-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4f8ef7 0%, #a78bfa 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  box-shadow: 0 0 0 1px #2a2d35;
+  color: #fff;
+}
+
+.assistant-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  max-width: calc(100% - 42px);
+}
+
+.process-box {
+  border: 1px solid #2a2d35;
+  background: linear-gradient(180deg, #10131a 0%, #0f1117 100%);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: inset 0 0 0 1px rgba(79, 142, 247, 0.08);
+}
+
+.process-title {
+  font-family: $font-code;
+  font-size: 10px;
+  color: #9fb5e9;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+
+.process-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.process-note {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #c8cde0;
+  padding: 4px 4px 8px;
+  margin-bottom: 2px;
+}
+
+/* ===== 工具气泡（严格按照 tool.html） ===== */
+.tool-bubble {
+  --surface: #16181c;
+  --surface2: #1e2026;
+  --border: #2a2d35;
+  --border-light: #343840;
+  --text-primary: #e8eaf0;
+  --text-secondary: #8b8fa8;
+  --text-muted: #555870;
+  --blue: #4f8ef7;
+  --green: #3ecf8e;
+  --amber: #f5a623;
+  --red: #f06292;
+  --purple: #a78bfa;
+
+  background: var(--surface);
+  border: 1px solid #4b556d;
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 13px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+
+  &:hover {
+    border-color: #7f8aa4;
+    box-shadow: 0 0 0 1px rgba(127, 138, 164, 0.25);
+  }
+}
+
+/* 按工具类型分色：黄/绿/蓝/红 */
+.tool-bubble.icon-search {
+  border-color: #d8a031;
+  box-shadow: inset 0 0 0 1px rgba(216, 160, 49, 0.18);
+  &:hover {
+    border-color: #f5b942;
+    box-shadow:
+      0 0 0 1px rgba(245, 185, 66, 0.3),
+      0 0 16px rgba(245, 185, 66, 0.14);
+  }
+}
+
+.tool-bubble.icon-web {
+  border-color: #2f8f66;
+  box-shadow: inset 0 0 0 1px rgba(47, 143, 102, 0.18);
+  &:hover {
+    border-color: #3ecf8e;
+    box-shadow:
+      0 0 0 1px rgba(62, 207, 142, 0.3),
+      0 0 16px rgba(62, 207, 142, 0.14);
+  }
+}
+
+.tool-bubble.icon-code {
+  border-color: #3d73c9;
+  box-shadow: inset 0 0 0 1px rgba(61, 115, 201, 0.18);
+  &:hover {
+    border-color: #4f8ef7;
+    box-shadow:
+      0 0 0 1px rgba(79, 142, 247, 0.3),
+      0 0 16px rgba(79, 142, 247, 0.14);
+  }
+}
+
+.tool-bubble.icon-file {
+  border-color: #c38a2a;
+  box-shadow: inset 0 0 0 1px rgba(195, 138, 42, 0.18);
+  &:hover {
+    border-color: #f5a623;
+    box-shadow:
+      0 0 0 1px rgba(245, 166, 35, 0.3),
+      0 0 16px rgba(245, 166, 35, 0.14);
+  }
+}
+
+.tool-bubble.icon-skill {
+  border-color: #cf4b63;
+  box-shadow: inset 0 0 0 1px rgba(207, 75, 99, 0.18);
+  &:hover {
+    border-color: #f06292;
+    box-shadow:
+      0 0 0 1px rgba(240, 98, 146, 0.3),
+      0 0 16px rgba(240, 98, 146, 0.14);
+  }
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tool-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+
+  &.icon-search {
+    background: #1a2744;
+    color: var(--blue);
+  }
+
+  &.icon-web {
+    background: #1d2e27;
+    color: var(--green);
+  }
+
+  &.icon-code {
+    background: #27213a;
+    color: var(--purple);
+  }
+
+  &.icon-file {
+    background: #2e2314;
+    color: var(--amber);
+  }
+
+  &.icon-skill {
+    background: #221d30;
+    color: var(--purple);
+  }
+
+  &.icon-default {
+    background: #23252b;
+    color: var(--text-secondary);
+  }
+}
+
+.tool-name {
+  font-family: $font-code;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+}
+
+.tool-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-family: $font-code;
+
+  .status-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+
+    &.running {
+      background: var(--amber);
+      animation: tool-pulse 1.2s ease-in-out infinite;
+    }
+
+    &.done {
+      background: var(--green);
+    }
+
+    &.error {
+      background: var(--red);
+    }
+  }
+
+  .status-label {
+    color: var(--text-secondary);
+    text-transform: lowercase;
+  }
+
+  .duration {
+    font-family: $font-code;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    margin-left: 2px;
+  }
+}
+
+.chevron {
+  color: var(--text-muted);
+  font-size: 10px;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-left: 2px;
+}
+
+.tool-bubble.open .chevron {
+  transform: rotate(180deg);
+}
+
+.tool-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0 13px;
+}
+
+.tool-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tool-bubble.open .tool-body {
+  grid-template-rows: 1fr;
+}
+
+.tool-body-inner {
+  overflow: hidden;
+}
+
+.tool-section {
+  padding: 9px 13px 11px;
+
+  & + .tool-section {
+    border-top: 1px solid var(--border);
+  }
+}
+
+.section-label {
+  font-family: $font-code;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 7px;
+}
+
+.param-block,
+.result-block {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 9px 11px;
+  font-family: $font-code;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+
+  &.success {
+    border-left: 2px solid var(--green);
+  }
+
+  &.error-r {
+    border-left: 2px solid var(--red);
+    color: var(--red);
+  }
+
+  &.stream-text::after {
+    content: '▋';
+    animation: blink 0.8s step-end infinite;
+    color: var(--blue);
+    font-size: 10px;
+    margin-left: 1px;
+  }
+}
+
+/* ===== 美化后的 JSON 键值对展示（用于旧版 tool-line 展开区） ===== */
+.pretty-param-block {
+  font-family: $font-code;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 2px 0;
+}
+
+.pretty-param-block .param-key {
+  color: #a78bfa;
+}
+
+.pretty-param-block .param-str {
+  color: #3ecf8e;
+}
+
+.pretty-param-block .param-num {
+  color: #f5a623;
+}
+
+.pretty-param-block .param-keyword {
+  color: #f06292;
+  font-style: italic;
+}
+
+.progress-bar {
+  height: 2px;
+  background: var(--border);
+  border-radius: 1px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.progress-fill {
+  display: block;
+  height: 100%;
+  width: 35%;
+  background: linear-gradient(90deg, var(--blue), var(--purple));
+  animation: tool-progress 1.6s ease-in-out infinite;
+}
+
+@keyframes tool-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.75);
+  }
+}
+
+@keyframes tool-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(340%);
+  }
+}
+
+/* ===== 回复内容框 ===== */
+.reply-block {
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--text-primary);
+  padding: 4px 2px;
+
+  :deep(p) {
+    margin-bottom: 10px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  :deep(strong) {
+    color: #e8eaf0;
+    font-weight: 600;
+  }
+
+  :deep(code) {
+    font-family: $font-code;
+    font-size: 12px;
+    background: #1e2026;
+    border: 1px solid #2a2d35;
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: #a78bfa;
+  }
+}
+
+/* ===== 操作栏 ===== */
+.action-bar {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+  padding-left: 2px;
+}
+
+.action-btn {
+  background: none;
+  border: none;
+  color: #555870;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 5px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  transition: color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  &:hover {
+    color: #8b8fa8;
+    background: #16181c;
+  }
+
+  &.playing {
+    color: var(--accent-primary);
   }
 }
 </style>

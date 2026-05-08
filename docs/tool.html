@@ -1,0 +1,454 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Sora:wght@300;400;500;600&display=swap');
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0e0f11;--surface:#16181c;--surface2:#1e2026;
+    --border:#2a2d35;--border-light:#343840;
+    --text-primary:#e8eaf0;--text-secondary:#8b8fa8;--text-muted:#555870;
+    --blue:#4f8ef7;--green:#3ecf8e;--amber:#f5a623;--red:#f06292;--purple:#a78bfa;
+    --mono:'JetBrains Mono',monospace;--sans:'Sora',sans-serif;
+  }
+  body{background:var(--bg);font-family:var(--sans);color:var(--text-primary);
+    min-height:100vh;padding:28px 20px 48px;display:flex;flex-direction:column;
+    gap:0;max-width:720px;margin:0 auto;}
+
+  /* ── USER ── */
+  .user-row{display:flex;justify-content:flex-end;margin-bottom:20px;}
+  .user-bubble{background:#1a2744;border:1px solid #2a3d6a;border-radius:16px 16px 4px 16px;
+    padding:11px 16px;font-size:14px;line-height:1.6;color:#c8d8f8;max-width:72%;}
+
+  /* ── ASSISTANT ROW ── */
+  .assistant-row{display:flex;gap:12px;align-items:flex-start;margin-bottom:4px;}
+  .avatar{width:30px;height:30px;border-radius:50%;
+    background:linear-gradient(135deg,#4f8ef7 0%,#a78bfa 100%);
+    display:flex;align-items:center;justify-content:center;font-size:14px;
+    flex-shrink:0;margin-top:2px;box-shadow:0 0 0 1px #2a2d35;}
+  .assistant-content{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0;}
+
+  /* ── TOOL BUBBLE ── */
+  .tool-bubble{background:var(--surface);border:1px solid var(--border);
+    border-radius:10px;overflow:hidden;font-size:13px;transition:border-color .2s;}
+  .tool-bubble:hover{border-color:var(--border-light);}
+
+  .tool-header{display:flex;align-items:center;gap:9px;padding:9px 13px;
+    cursor:pointer;user-select:none;}
+  .tool-icon{width:26px;height:26px;border-radius:7px;display:flex;
+    align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}
+  .tool-name{font-family:var(--mono);font-size:12px;font-weight:500;
+    color:var(--text-primary);flex:1;}
+  .tool-status{display:flex;align-items:center;gap:5px;font-size:11px;font-family:var(--mono);}
+  .status-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;}
+  .status-dot.running{background:var(--amber);animation:pulse 1.2s ease-in-out infinite;}
+  .status-dot.done{background:var(--green);}
+  .status-dot.error{background:var(--red);}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.75)}}
+  .status-label{color:var(--text-secondary);}
+  .duration{font-family:var(--mono);font-size:10.5px;color:var(--text-muted);margin-left:2px;}
+  .chevron{color:var(--text-muted);font-size:10px;
+    transition:transform .25s cubic-bezier(.4,0,.2,1);margin-left:2px;}
+  .tool-bubble.open .chevron{transform:rotate(180deg);}
+
+  .tool-divider{height:1px;background:var(--border);margin:0 13px;}
+  .tool-body{display:grid;grid-template-rows:0fr;
+    transition:grid-template-rows .28s cubic-bezier(.4,0,.2,1);}
+  .tool-bubble.open .tool-body{grid-template-rows:1fr;}
+  .tool-body-inner{overflow:hidden;}
+
+  .tool-section{padding:9px 13px 11px;}
+  .tool-section+.tool-section{border-top:1px solid var(--border);}
+  .section-label{font-family:var(--mono);font-size:10px;font-weight:500;
+    color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px;}
+
+  .param-block,.result-block{background:var(--surface2);border:1px solid var(--border);
+    border-radius:7px;padding:9px 11px;font-family:var(--mono);font-size:11.5px;
+    line-height:1.7;color:var(--text-secondary);overflow-x:auto;
+    white-space:pre-wrap;word-break:break-word;}
+  .result-block.success{border-left:2px solid var(--green);}
+  .result-block.error-r{border-left:2px solid var(--red);color:var(--red);}
+  .param-key{color:var(--purple);}
+  .param-str{color:var(--green);}
+  .param-num{color:var(--amber);}
+
+  .progress-bar{height:2px;background:var(--border);border-radius:1px;
+    overflow:hidden;margin-bottom:8px;}
+  .progress-fill{height:100%;
+    background:linear-gradient(90deg,var(--blue),var(--purple));
+    animation:prog 1.6s ease-in-out infinite;width:35%;}
+  @keyframes prog{0%{transform:translateX(-100%)}100%{transform:translateX(340%)}}
+
+  .stream-text::after{content:'▋';animation:blink .8s step-end infinite;
+    color:var(--blue);font-size:10px;margin-left:1px;}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+  /* icon themes */
+  .icon-search{background:#1a2744;color:var(--blue);}
+  .icon-web{background:#1d2e27;color:var(--green);}
+  .icon-code{background:#27213a;color:var(--purple);}
+  .icon-file{background:#2e2314;color:var(--amber);}
+  .icon-skill{background:#221d30;color:var(--purple);}
+
+  /* ── SEARCH RESULTS ── */
+  .search-results{display:flex;flex-direction:column;gap:6px;}
+  .search-result-item{background:var(--surface);border:1px solid var(--border);
+    border-radius:7px;padding:9px 12px;cursor:pointer;transition:border-color .15s;}
+  .search-result-item:hover{border-color:var(--border-light);}
+  .result-header{display:flex;align-items:center;gap:8px;margin-bottom:0;}
+  .result-favicon{width:14px;height:14px;border-radius:3px;
+    display:flex;align-items:center;justify-content:center;font-size:9px;flex-shrink:0;}
+  .result-domain{font-family:var(--mono);font-size:10.5px;color:var(--text-muted);flex:1;}
+  .result-chevron{font-size:9px;color:var(--text-muted);
+    transition:transform .2s cubic-bezier(.4,0,.2,1);}
+  .search-result-item.open .result-chevron{transform:rotate(180deg);}
+  .result-title{font-size:12.5px;font-weight:500;color:var(--blue);
+    margin:5px 0 0;line-height:1.4;text-decoration:none;display:block;}
+  .result-snippet-wrap{display:grid;grid-template-rows:0fr;
+    transition:grid-template-rows .22s cubic-bezier(.4,0,.2,1);}
+  .search-result-item.open .result-snippet-wrap{grid-template-rows:1fr;}
+  .result-snippet-inner{overflow:hidden;}
+  .result-snippet{font-size:11.5px;color:var(--text-secondary);
+    line-height:1.6;margin-top:7px;padding-top:7px;
+    border-top:1px solid var(--border);}
+  .result-snippet em{color:var(--text-primary);font-style:normal;font-weight:500;}
+
+  /* ── SKILL BUBBLE ── */
+  .skill-bubble{background:var(--surface);border:1px solid var(--border);
+    border-radius:10px;overflow:hidden;font-size:13px;
+    border-left:2px solid var(--purple);transition:border-color .2s;}
+  .skill-bubble:hover{border-color:var(--purple);}
+  .skill-header{display:flex;align-items:center;gap:9px;padding:9px 13px;
+    cursor:pointer;user-select:none;}
+  .skill-tag{font-family:var(--mono);font-size:10px;padding:2px 7px;
+    border-radius:4px;background:#27213a;color:var(--purple);
+    border:1px solid #3d2f5a;flex-shrink:0;}
+  .skill-name{font-family:var(--mono);font-size:12px;font-weight:500;
+    color:var(--text-primary);flex:1;}
+  .skill-body{display:grid;grid-template-rows:0fr;
+    transition:grid-template-rows .28s cubic-bezier(.4,0,.2,1);}
+  .skill-bubble.open .skill-body{grid-template-rows:1fr;}
+  .skill-body-inner{overflow:hidden;}
+  .skill-content{padding:0 13px 12px;font-size:12px;line-height:1.65;
+    color:var(--text-secondary);}
+  .skill-content code{font-family:var(--mono);font-size:11px;
+    background:var(--surface2);border:1px solid var(--border);
+    border-radius:4px;padding:1px 5px;color:var(--purple);}
+  .skill-path{font-family:var(--mono);font-size:10.5px;color:var(--text-muted);
+    margin-top:6px;display:block;}
+
+  /* ── REPLY ── */
+  .reply-block{font-size:14px;line-height:1.75;color:var(--text-primary);padding:4px 2px;}
+  .reply-block p{margin-bottom:10px;}
+  .reply-block p:last-child{margin-bottom:0;}
+  .reply-block strong{color:#e8eaf0;font-weight:600;}
+  .reply-block code{font-family:var(--mono);font-size:12px;background:var(--surface2);
+    border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--purple);}
+  .reply-table{width:100%;border-collapse:collapse;font-size:12.5px;
+    margin:8px 0 10px;font-family:var(--mono);}
+  .reply-table th{text-align:left;padding:6px 10px;color:var(--text-muted);
+    font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+    border-bottom:1px solid var(--border);}
+  .reply-table td{padding:7px 10px;border-bottom:1px solid #1e2026;
+    color:var(--text-secondary);vertical-align:top;}
+  .reply-table tr:last-child td{border-bottom:none;}
+  .reply-table td:first-child{color:var(--text-primary);}
+  .chip{display:inline-block;font-family:var(--mono);font-size:10.5px;
+    padding:1px 7px;border-radius:4px;background:#1d2e27;
+    color:var(--green);border:1px solid #2a4a38;}
+  .chip.amber{background:#2e2314;color:var(--amber);border-color:#4a3820;}
+
+  .reply-streaming{font-size:14px;line-height:1.75;color:var(--text-secondary);padding:4px 2px;}
+  .reply-streaming::after{content:'▋';animation:blink .8s step-end infinite;
+    color:var(--blue);font-size:12px;margin-left:2px;}
+
+  .action-bar{display:flex;gap:6px;margin-top:2px;padding-left:2px;}
+  .action-btn{background:none;border:none;color:var(--text-muted);font-size:12px;
+    cursor:pointer;padding:4px 6px;border-radius:5px;font-family:var(--sans);
+    transition:color .15s,background .15s;display:flex;align-items:center;gap:4px;}
+  .action-btn:hover{color:var(--text-secondary);background:var(--surface);}
+
+  .turn-gap{height:20px;}
+</style>
+</head>
+<body>
+
+<!-- ══ TURN 1 ══ -->
+<div class="user-row">
+  <div class="user-bubble">H20 显卡部署 44 张够用吗？帮我查一下实际性能参数</div>
+</div>
+
+<div class="assistant-row">
+  <div class="avatar">✦</div>
+  <div class="assistant-content">
+
+    <!-- skill read -->
+    <div class="skill-bubble" id="sk1">
+      <div class="skill-header" onclick="toggle('sk1','skill-body')">
+        <span class="skill-tag">SKILL</span>
+        <span class="skill-name">product-self-knowledge</span>
+        <div class="tool-status">
+          <div class="status-dot done"></div>
+          <span class="status-label">read</span>
+          <span class="duration">0.1s</span>
+        </div>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="tool-divider"></div>
+      <div class="skill-body" id="sk1-body">
+        <div class="skill-body-inner">
+          <div class="skill-content">
+            读取技能文档，获取 GPU 规格与部署相关的参考信息，避免依赖训练数据中可能过时的参数。
+            <span class="skill-path">/mnt/skills/public/product-self-knowledge/SKILL.md</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- web_search with expandable results -->
+    <div class="tool-bubble open" id="t1">
+      <div class="tool-header" onclick="toggle('t1','tool-body')">
+        <div class="tool-icon icon-search">🔍</div>
+        <span class="tool-name">web_search</span>
+        <div class="tool-status">
+          <div class="status-dot done"></div>
+          <span class="status-label">done</span>
+          <span class="duration">0.9s</span>
+        </div>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="tool-divider"></div>
+      <div class="tool-body" id="t1-body">
+        <div class="tool-body-inner">
+          <div class="tool-section">
+            <div class="section-label">Input</div>
+            <div class="param-block"><span class="param-key">"query"</span>: <span class="param-str">"NVIDIA H20 FP16 TFLOPS inference benchmark 2025"</span></div>
+          </div>
+          <div class="tool-section">
+            <div class="section-label">Results · 6 found</div>
+            <div class="search-results">
+
+              <div class="search-result-item open" onclick="toggleResult(this)">
+                <div class="result-header">
+                  <div class="result-favicon" style="background:#1a2744">N</div>
+                  <span class="result-domain">nvidia.com</span>
+                  <span class="result-chevron">▾</span>
+                </div>
+                <a class="result-title">NVIDIA H20 GPU — Data Center Product Page</a>
+                <div class="result-snippet-wrap">
+                  <div class="result-snippet-inner">
+                    <div class="result-snippet">H20 SXM delivers <em>148 TFLOPS FP16</em>, 96 GB HBM3, 4 TB/s memory bandwidth. Designed for inference workloads in export-controlled markets. NVLink 900 GB/s.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="search-result-item" onclick="toggleResult(this)">
+                <div class="result-header">
+                  <div class="result-favicon" style="background:#1d2e27">T</div>
+                  <span class="result-domain">techpowerup.com</span>
+                  <span class="result-chevron">▾</span>
+                </div>
+                <a class="result-title">NVIDIA H20 Specs — TechPowerUp GPU Database</a>
+                <div class="result-snippet-wrap">
+                  <div class="result-snippet-inner">
+                    <div class="result-snippet">Hopper architecture · <em>TDP 500W</em> · PCIe Gen5 · Released Q2 2024. Compared to H100 SXM: roughly 47% compute, 96% memory. Suitable for LLM inference with large KV cache.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="search-result-item" onclick="toggleResult(this)">
+                <div class="result-header">
+                  <div class="result-favicon" style="background:#27213a">S</div>
+                  <span class="result-domain">semianalysis.com</span>
+                  <span class="result-chevron">▾</span>
+                </div>
+                <a class="result-title">H20 vs A100 — Inference Efficiency Deep Dive 2025</a>
+                <div class="result-snippet-wrap">
+                  <div class="result-snippet-inner">
+                    <div class="result-snippet">For LLM inference workloads, H20 shows <em>~1.8–2.1× lower throughput</em> vs A100 80G per card due to compute gap, but higher memory bandwidth compensates for memory-bound models (>70B params).</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="search-result-item" onclick="toggleResult(this)">
+                <div class="result-header">
+                  <div class="result-favicon" style="background:#2e2314">H</div>
+                  <span class="result-domain">huggingface.co</span>
+                  <span class="result-chevron">▾</span>
+                </div>
+                <a class="result-title">vLLM Benchmark: H20 vs H100 vs A100 Inference Speed</a>
+                <div class="result-snippet-wrap">
+                  <div class="result-snippet-inner">
+                    <div class="result-snippet">Community benchmark on Llama-3-70B: H20 achieves <em>~1,200 tokens/s</em> per card (vLLM, FP16, batch=32), vs A100 ~2,100 tok/s. Memory-bound tasks close the gap significantly.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="search-result-item" onclick="toggleResult(this)">
+                <div class="result-header">
+                  <div class="result-favicon" style="background:#1d2e27">A</div>
+                  <span class="result-domain">anandtech.com</span>
+                  <span class="result-chevron">▾</span>
+                </div>
+                <a class="result-title">Export-Controlled AI Chips: H20, L20 Architecture Review</a>
+                <div class="result-snippet-wrap">
+                  <div class="result-snippet-inner">
+                    <div class="result-snippet">H20 retains full NVLink fabric (900 GB/s) while compute is cut to comply with BIS export rules. <em>Multi-node scaling remains efficient</em> for MoE-style models like DeepSeek.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="search-result-item" onclick="toggleResult(this)">
+                <div class="result-header">
+                  <div class="result-favicon" style="background:#221d30">G</div>
+                  <span class="result-domain">github.com/vllm-project</span>
+                  <span class="result-chevron">▾</span>
+                </div>
+                <a class="result-title">vLLM H20 Optimization Notes — GitHub Issue #4821</a>
+                <div class="result-snippet-wrap">
+                  <div class="result-snippet-inner">
+                    <div class="result-snippet">Flash Attention 2 on H20 with HBM3: <em>PagedAttention throughput ~30% higher</em> than A100 for long context (>8K tokens). Recommended: enable chunked prefill for video captioning tasks.</div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- web_fetch -->
+    <div class="tool-bubble" id="t2">
+      <div class="tool-header" onclick="toggle('t2','tool-body')">
+        <div class="tool-icon icon-web">🌐</div>
+        <span class="tool-name">web_fetch</span>
+        <div class="tool-status">
+          <div class="status-dot done"></div>
+          <span class="status-label">done</span>
+          <span class="duration">1.4s</span>
+        </div>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="tool-divider"></div>
+      <div class="tool-body" id="t2-body">
+        <div class="tool-body-inner">
+          <div class="tool-section">
+            <div class="section-label">Input</div>
+            <div class="param-block"><span class="param-key">"url"</span>: <span class="param-str">"https://www.nvidia.com/en-us/data-center/h20/"</span>
+<span class="param-key">"max_tokens"</span>: <span class="param-num">4096</span></div>
+          </div>
+          <div class="tool-section">
+            <div class="section-label">Output</div>
+            <div class="result-block success">H20 SXM · 96GB HBM3 · 148 TFLOPS FP16
+NVLink 900GB/s · TDP 500W · PCIe Gen5
+vs A100: ~47% compute · 200% memory bandwidth</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- reply -->
+    <div class="reply-block">
+      <p>查到了 H20 的实测数据。<strong>44 张基本够用，但视频流水线有一个关键瓶颈。</strong></p>
+      <table class="reply-table">
+        <thead><tr><th>指标</th><th>H20</th><th>A100 80G</th><th>差距</th></tr></thead>
+        <tbody>
+          <tr><td>FP16 算力</td><td>148 TFLOPS</td><td>312 TFLOPS</td><td><span class="chip amber">−53%</span></td></tr>
+          <tr><td>显存</td><td>96 GB HBM3</td><td>80 GB HBM2e</td><td><span class="chip">+20%</span></td></tr>
+          <tr><td>显存带宽</td><td>4 TB/s</td><td>2 TB/s</td><td><span class="chip">+100%</span></td></tr>
+          <tr><td>NVLink</td><td>900 GB/s</td><td>600 GB/s</td><td><span class="chip">+50%</span></td></tr>
+        </tbody>
+      </table>
+      <p>H20 显存和带宽远强于 A100，<strong>装载大模型没有压力</strong>，但 FP16 算力只有 A100 的 47%。<code>InternVideo2</code> 和 <code>LLaVA-Video</code> 吞吐本就偏低，用 H20 跑会进一步变慢，视频占 55% 的情况下这是最大风险点。建议先用 <strong>32 张跑视频主流水线</strong>，跑一周看队列积压再决定是否扩容。</p>
+    </div>
+
+    <div class="action-bar">
+      <button class="action-btn">⎘ 复制</button>
+      <button class="action-btn">↻ 重新生成</button>
+      <button class="action-btn">👍</button>
+      <button class="action-btn">👎</button>
+    </div>
+  </div>
+</div>
+
+<div class="turn-gap"></div>
+
+<!-- ══ TURN 2 ══ -->
+<div class="user-row">
+  <div class="user-bubble">那 DeepSeek-V3 的 vLLM 部署脚本帮我生成一下</div>
+</div>
+
+<div class="assistant-row">
+  <div class="avatar">✦</div>
+  <div class="assistant-content">
+
+    <!-- skill read -->
+    <div class="skill-bubble open" id="sk2">
+      <div class="skill-header" onclick="toggle('sk2','skill-body')">
+        <span class="skill-tag">SKILL</span>
+        <span class="skill-name">frontend-design</span>
+        <div class="tool-status">
+          <div class="status-dot done"></div>
+          <span class="status-label">read</span>
+          <span class="duration">0.1s</span>
+        </div>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="tool-divider"></div>
+      <div class="skill-body" id="sk2-body">
+        <div class="skill-body-inner">
+          <div class="skill-content">
+            读取技能文档，了解代码文件生成规范与 vLLM 部署最佳实践，确保输出的脚本符合生产级标准。
+            <span class="skill-path">/mnt/skills/public/product-self-knowledge/SKILL.md</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- bash running -->
+    <div class="tool-bubble open" id="t3">
+      <div class="tool-header" onclick="toggle('t3','tool-body')">
+        <div class="tool-icon icon-code">⚙️</div>
+        <span class="tool-name">bash_tool</span>
+        <div class="tool-status">
+          <div class="status-dot running"></div>
+          <span class="status-label">running</span>
+        </div>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="tool-divider"></div>
+      <div class="tool-body" id="t3-body">
+        <div class="tool-body-inner">
+          <div class="tool-section">
+            <div class="section-label">Input</div>
+            <div class="param-block"><span class="param-key">"command"</span>: <span class="param-str">"python -c \"import vllm; print(vllm.__version__)\""</span>
+<span class="param-key">"description"</span>: <span class="param-str">"Check vLLM version for DeepSeek compatibility"</span></div>
+          </div>
+          <div class="tool-section">
+            <div class="section-label">Output</div>
+            <div class="progress-bar"><div class="progress-fill"></div></div>
+            <div class="result-block"><span class="stream-text">Checking environment</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="reply-streaming">正在生成 DeepSeek-V3 的 vLLM 部署脚本</div>
+  </div>
+</div>
+
+<script>
+function toggle(id, bodyClass) {
+  const bubble = document.getElementById(id);
+  bubble.classList.toggle('open');
+}
+
+function toggleResult(el) {
+  el.classList.toggle('open');
+}
+</script>
+</body>
+</html>

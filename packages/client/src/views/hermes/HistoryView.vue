@@ -409,9 +409,6 @@ async function handleWorkspaceConfirm() {
           </button>
         </div>
       </div>
-      <div v-if="showSessions" class="session-scope-note">
-        {{ t('chat.historyScopeHint') }}
-      </div>
       <div v-if="showSessions" class="session-items">
         <div v-if="hermesSessionsLoading && hermesSessions.length === 0" class="session-loading">{{ t('common.loading') }}</div>
         <div v-else-if="hermesSessions.length === 0" class="session-empty">{{ t('chat.noSessions') }}</div>
@@ -624,17 +621,6 @@ async function handleWorkspaceConfirm() {
   color: $text-muted;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-}
-
-.session-scope-note {
-  margin: 0 12px 10px;
-  padding: 8px 10px;
-  border: 1px solid rgba($accent-primary, 0.16);
-  border-radius: $radius-sm;
-  background: rgba($accent-primary, 0.06);
-  color: $text-secondary;
-  font-size: 11px;
-  line-height: 1.45;
 }
 
 .session-group-header {

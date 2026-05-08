@@ -628,6 +628,63 @@ export const useChatStore = defineStore('chat', () => {
     target.updatedAt = Date.now()
   }
 
+  /**
+   * 流式结束后从本地 DB 获取完整消息数据，补全 tool 消息的 toolArgs 和 toolResult。
+   * 因为 SSE 流式事件中的 tool.started/tool.completed 包含的信息有限
+   * （如缺失 args/output），而 DB 中的数据是通过 mapHermesMessages 完整解析的。
+   */
+  async function refreshToolMessagesFromDb(sessionId: string): Promise<boolean> {
+    try {
+      const detail = await fetchSession(sessionId)
+      if (!detail) return false
+      const target = sessions.value.find(s => s.id === sessionId)
+      if (!target) return false
+      const dbMessages = mapHermesMessages(detail.messages || [])
+      let updated = false
+      // 遍历 DB 中的 tool 消息，用完整数据更新内存中的对应消息
+      for (const dbMsg of dbMessages) {
+        if (dbMsg.role !== 'tool') continue
+        // 在内存中查找匹配的 tool 消息（按 toolName 匹配，且 toolArgs/toolResult 缺失的）
+        const matchIdx = target.messages.findIndex(m =>
+          m.role === 'tool' &&
+          m.toolName === dbMsg.toolName &&
+          // 优先匹配 toolArgs/toolResult 缺失的（即流式创建的消息）
+          (!m.toolArgs || !m.toolResult)
+        )
+        if (matchIdx !== -1) {
+          const existing = target.messages[matchIdx]
+          target.messages[matchIdx] = {
+            ...existing,
+            // 只补全 DB 中有而流式消息中可能缺失的字段
+            toolArgs: dbMsg.toolArgs || existing.toolArgs,
+            toolResult: dbMsg.toolResult || existing.toolResult,
+            toolPreview: dbMsg.toolPreview || existing.toolPreview,
+          }
+          updated = true
+        }
+      }
+      return updated
+    } catch (err) {
+      console.error('[chat] refreshToolMessagesFromDb failed:', err)
+      return false
+    }
+  }
+
+  /**
+   * 工具 completed 后立刻尝试从 DB 补全；若 DB 尚未写入则短间隔重试。
+   * 这能让每个工具在完成后尽快显示完整 output，而不是等到整次 run 结束。
+   */
+  function refreshToolMessagesFromDbWithRetry(sessionId: string, retries = 5, delayMs = 200) {
+    const attempt = async (left: number) => {
+      const updated = await refreshToolMessagesFromDb(sessionId)
+      if (updated || left <= 0) return
+      setTimeout(() => {
+        void attempt(left - 1)
+      }, delayMs)
+    }
+    void attempt(retries)
+  }
+
   function primeCompletionBellIfEnabled() {
     if (useSettingsStore().display.bell_on_complete) {
       primeCompletionSound()
@@ -764,6 +821,17 @@ export const useChatStore = defineStore('chat', () => {
                 queueLengths.value.set(sid, (evt as any).queue_length)
               } else {
                 queueLengths.value.delete(sid)
+              }
+              {
+                const newId = uid()
+                addMessage(sid, {
+                  id: newId,
+                  role: 'assistant',
+                  content: '',
+                  timestamp: Date.now(),
+                  isStreaming: true,
+                })
+                activeAssistantMessageId = newId
               }
               break
 
@@ -910,13 +978,17 @@ export const useChatStore = defineStore('chat', () => {
             case 'tool.started': {
               runHadToolActivity = true
               const msgs = getSessionMsgs(sid)
-              const last = activeAssistantMessageId
-                ? msgs.find(m => m.id === activeAssistantMessageId)
-                : msgs[msgs.length - 1]
-              if (last?.isStreaming) {
-                updateMessage(sid, last.id, { isStreaming: false })
+              if (!activeAssistantMessageId || !msgs.find(m => m.id === activeAssistantMessageId && m.role === 'assistant')) {
+                const newId = uid()
+                addMessage(sid, {
+                  id: newId,
+                  role: 'assistant',
+                  content: '',
+                  timestamp: Date.now(),
+                  isStreaming: true,
+                })
+                activeAssistantMessageId = newId
               }
-              activeAssistantMessageId = null
               addMessage(sid, {
                 id: uid(),
                 role: 'tool',
@@ -938,14 +1010,19 @@ export const useChatStore = defineStore('chat', () => {
               )
               if (toolMsgs.length > 0) {
                 const last = toolMsgs[toolMsgs.length - 1]
-                // Check if tool errored
                 const hasError = (evt as any).error === true
                 const duration = (evt as any).duration
+                const output = (evt as any).output
                 updateMessage(sid, last.id, {
                   toolStatus: hasError ? 'error' : 'done',
                   toolDuration: duration,
+                  toolResult: output != null
+                    ? typeof output === 'string' ? output : JSON.stringify(output, null, 2)
+                    : last.toolResult,
                 })
               }
+              // 每个工具完成后立刻补全；若 DB 写入稍慢则自动重试
+              refreshToolMessagesFromDbWithRetry(sid)
 
               break
             }
@@ -1195,6 +1272,17 @@ export const useChatStore = defineStore('chat', () => {
           } else {
             queueLengths.value.delete(sid)
           }
+          {
+            const newId = uid()
+            addMessage(sid, {
+              id: newId,
+              role: 'assistant',
+              content: '',
+              timestamp: Date.now(),
+              isStreaming: true,
+            })
+            activeAssistantMessageId = newId
+          }
           break
 
         case 'compression.started': {
@@ -1326,13 +1414,17 @@ export const useChatStore = defineStore('chat', () => {
         case 'tool.started': {
           runHadToolActivity = true
           const msgs = getSessionMsgs(sid)
-          const last = activeAssistantMessageId
-            ? msgs.find(m => m.id === activeAssistantMessageId)
-            : msgs[msgs.length - 1]
-          if (last?.isStreaming) {
-            updateMessage(sid, last.id, { isStreaming: false })
+          if (!activeAssistantMessageId || !msgs.find(m => m.id === activeAssistantMessageId && m.role === 'assistant')) {
+            const newId = uid()
+            addMessage(sid, {
+              id: newId,
+              role: 'assistant',
+              content: '',
+              timestamp: Date.now(),
+              isStreaming: true,
+            })
+            activeAssistantMessageId = newId
           }
-          activeAssistantMessageId = null
           addMessage(sid, {
             id: uid(),
             role: 'tool',
@@ -1352,11 +1444,17 @@ export const useChatStore = defineStore('chat', () => {
           const toolMsgs = msgs.filter(m => m.role === 'tool' && m.toolStatus === 'running')
           if (toolMsgs.length > 0) {
             const hasError = (evt as any).error === true
+                const output = (evt as any).output
             updateMessage(sid, toolMsgs[toolMsgs.length - 1].id, {
               toolStatus: hasError ? 'error' : 'done',
               toolDuration: (evt as any).duration,
+                  toolResult: output != null
+                    ? (typeof output === 'string' ? output : JSON.stringify(output, null, 2))
+                : toolMsgs[toolMsgs.length - 1].toolResult,
             })
           }
+          // 每个工具完成后立刻补全；若 DB 写入稍慢则自动重试
+          refreshToolMessagesFromDbWithRetry(sid)
 
           break
         }

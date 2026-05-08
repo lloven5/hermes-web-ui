@@ -90,7 +90,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': createProxyConfig(),
+      '/api': {
+        ...createProxyConfig(),
+        ws: true,
+      },
       '/v1': createProxyConfig(),
       '/health': createProxyConfig(),
       '/upload': createProxyConfig(),

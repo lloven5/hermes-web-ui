@@ -251,6 +251,15 @@ function formatSize(bytes: number): string {
 function isImage(type: string): boolean {
   return type.startsWith('image/')
 }
+
+function insertText(text: string) {
+  const current = inputText.value
+  const needsSpace = current.length > 0 && !current.endsWith(' ')
+  inputText.value = current + (needsSpace ? ' ' : '') + text + ' '
+  nextTick(() => textareaRef.value?.focus())
+}
+
+defineExpose({ insertText })
 </script>
 
 <template>
