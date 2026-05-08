@@ -694,27 +694,33 @@ export const useChatStore = defineStore('chat', () => {
         const existing = existingToolMsgs[idx]
         const dbMsg = dbToolMsgs[idx]
         
-        // 检查是否需要更新（existing 中有缺失，dbMsg 中有值）
-        if (existing.toolArgs && existing.toolResult) continue // 已有完整数据，跳过
-        if (!dbMsg.toolArgs && !dbMsg.toolResult) continue // DB 中也无数据，跳过
-        
         // 找到 target.messages 中对应的位置
         const targetIdx = target.messages.findIndex(m => m.id === existing.id)
         if (targetIdx === -1) continue
         
-        const needsToolArgs = !existing.toolArgs && dbMsg.toolArgs
-        const needsToolResult = !existing.toolResult && dbMsg.toolResult
-        const needsToolPreview = !existing.toolPreview && dbMsg.toolPreview
+        // 检查是否需要更新：当 DB 中的数据比本地更完整/更长时
+        const existingArgsLen = existing.toolArgs?.length || 0
+        const existingResultLen = (existing.toolResult?.length || 0)
+        const dbArgsLen = dbMsg.toolArgs?.length || 0
+        const dbResultLen = dbMsg.toolResult?.length || 0
         
-        if (needsToolArgs || needsToolResult || needsToolPreview) {
+        // 检查是否有需要更新的数据
+        const hasBetterArgs = dbArgsLen > existingArgsLen
+        const hasBetterResult = dbResultLen > existingResultLen
+        const hasPreview = !existing.toolPreview && dbMsg.toolPreview
+        
+        if (hasBetterArgs || hasBetterResult || hasPreview) {
           target.messages[targetIdx] = {
             ...existing,
-            ...(needsToolArgs ? { toolArgs: dbMsg.toolArgs } : {}),
-            ...(needsToolResult ? { toolResult: dbMsg.toolResult } : {}),
-            ...(needsToolPreview ? { toolPreview: dbMsg.toolPreview } : {}),
+            toolArgs: hasBetterArgs ? dbMsg.toolArgs : existing.toolArgs,
+            toolResult: hasBetterResult ? dbMsg.toolResult : existing.toolResult,
+            toolPreview: hasPreview ? dbMsg.toolPreview : existing.toolPreview,
           }
           updated = true
         }
+      }
+      if (updated) {
+        console.log('[chat] refreshToolMessagesFromDb: updated', updated, 'tool messages')
       }
       return updated
     } catch (err) {
@@ -727,10 +733,17 @@ export const useChatStore = defineStore('chat', () => {
    * 工具 completed 后立刻尝试从 DB 补全；若 DB 尚未写入则短间隔重试。
    * 这能让每个工具在完成后尽快显示完整 output，而不是等到整次 run 结束。
    */
-  function refreshToolMessagesFromDbWithRetry(sessionId: string, retries = 5, delayMs = 200) {
+  function refreshToolMessagesFromDbWithRetry(sessionId: string, retries = 8, delayMs = 100) {
     const attempt = async (left: number) => {
       const updated = await refreshToolMessagesFromDb(sessionId)
-      if (updated || left <= 0) return
+      if (updated) {
+        console.log('[chat] refreshToolMessagesFromDb succeeded on attempt', 8 - left)
+        return
+      }
+      if (left <= 0) {
+        console.log('[chat] refreshToolMessagesFromDb exhausted retries')
+        return
+      }
       setTimeout(() => {
         void attempt(left - 1)
       }, delayMs)

@@ -104,15 +104,20 @@ const hasRunningTools = computed(() => {
 });
 
 function isToolExpanded(id: string): boolean {
-  // 默认展开，用户点击后可折叠
-  // expandedToolIds 存储的是用户主动折叠过的工具 ID
-  return !expandedToolIds.value.has(id);
+  // expandedToolIds 存储的是已展开的工具 ID（用户手动点击展开的）
+  // 默认返回 false（折叠）
+  return expandedToolIds.value.has(id);
 }
 
 function toggleTool(id: string) {
   const next = new Set(expandedToolIds.value);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
+  if (next.has(id)) {
+    // 已展开，点击后折叠（从 Set 中移除）
+    next.delete(id);
+  } else {
+    // 已折叠，点击后展开（添加到 Set）
+    next.add(id);
+  }
   expandedToolIds.value = next;
 }
 
@@ -2003,10 +2008,12 @@ onBeforeUnmount(() => {
 
 .tool-body {
   display: grid;
+  /* 默认折叠（0fr），用户点击后展开（1fr） */
   grid-template-rows: 0fr;
   transition: grid-template-rows 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* 展开状态：grid-template-rows: 1fr 显示内容 */
 .tool-bubble.open .tool-body {
   grid-template-rows: 1fr;
 }
@@ -2133,6 +2140,80 @@ onBeforeUnmount(() => {
   100% {
     transform: translateX(340%);
   }
+}
+
+/* ===== Skill 气泡 ===== */
+.skill-bubble {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 13px;
+  border-left: 2px solid var(--purple);
+  transition: border-color 0.2s;
+
+  &:hover {
+    border-color: var(--purple);
+  }
+
+  &.open {
+    border-color: var(--purple);
+  }
+}
+
+.skill-header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.skill-tag {
+  font-family: $font-code;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #27213a;
+  color: var(--purple);
+  border: 1px solid #3d2f5a;
+  flex-shrink: 0;
+}
+
+.skill-name {
+  font-family: $font-code;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+}
+
+.skill-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.skill-bubble.open .skill-body {
+  grid-template-rows: 1fr;
+}
+
+.skill-body-inner {
+  overflow: hidden;
+}
+
+.skill-content {
+  padding: 0 13px 12px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+
+  :deep(.param-key) { color: var(--purple); }
+  :deep(.param-str) { color: var(--green); }
+  :deep(.param-num) { color: var(--amber); }
+  :deep(.param-keyword) { color: var(--red); font-style: italic; }
 }
 
 /* ===== 回复内容框 ===== */

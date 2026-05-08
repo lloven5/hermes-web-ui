@@ -1047,6 +1047,9 @@ export class ChatRunSocket {
                   if (toolMsg && parsed.output) {
                     toolMsg.content = typeof parsed.output === 'string' ? parsed.output : JSON.stringify(parsed.output)
                   }
+                  // 每个工具完成后立即同步最新消息到本地 DB，让前端可以及时查询到完整数据
+                  // 包括 assistant 消息中的 tool_calls (arguments)
+                  void this.syncToolMessageToLocalDb(session_id, hermesSessionId)
                   break
                 }
                 case 'run.completed': {
@@ -1633,6 +1636,68 @@ export class ChatRunSocket {
       ).run(hermesSessionId, profile || 'default', now, now, now)
       logger.info('[chat-run-socket] enqueued ephemeral session %s for deletion', hermesSessionId)
     } catch { /* best-effort */ }
+  }
+
+  /**
+   * 每个工具完成后立即同步最新消息到本地 DB。
+   * 这让前端可以及时查询到完整的 tool_calls (arguments) 数据。
+   */
+  private async syncToolMessageToLocalDb(localSessionId: string | undefined, hermesSessionId: string | undefined): Promise<void> {
+    if (!localSessionId || !hermesSessionId) return
+    if (!hermesSessionId || !useLocalSessionStore()) return
+    try {
+      const detail = await getSessionDetailFromDb(hermesSessionId)
+      if (!detail?.messages?.length) {
+        logger.debug('[chat-run-socket] syncToolMessageToLocalDb: no Hermes messages yet for %s', hermesSessionId)
+        return
+      }
+
+      // 构建 tool_call_id → function.name 映射
+      const toolNameMap = new Map<string, string>()
+      for (const msg of detail.messages) {
+        if (msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
+          for (const tc of msg.tool_calls) {
+            const id = tc.id || tc.call_id || tc.tool_call_id
+            const name = tc.function?.name || tc.name
+            if (id && name) toolNameMap.set(id, name)
+          }
+        }
+      }
+
+      // 过滤并准备插入消息（跳过 user 消息）
+      const toInsert = detail.messages
+        .filter(m => m.role !== 'user')
+        .map(msg => {
+          let toolName = msg.tool_name || null
+          if (!toolName && msg.tool_call_id) {
+            toolName = toolNameMap.get(msg.tool_call_id) || null
+          }
+          return {
+            session_id: localSessionId,
+            role: msg.role,
+            content: msg.content || '',
+            tool_call_id: msg.tool_call_id || null,
+            tool_calls: msg.tool_calls || null,
+            tool_name: toolName,
+            timestamp: msg.timestamp || Math.floor(Date.now() / 1000),
+            token_count: msg.token_count || null,
+            finish_reason: msg.finish_reason || null,
+            reasoning: msg.reasoning || null,
+            reasoning_details: msg.reasoning_details || null,
+            reasoning_content: msg.reasoning_content || null,
+            codex_reasoning_items: msg.codex_reasoning_items || null,
+          }
+        })
+
+      if (toInsert.length > 0) {
+        // 直接批量插入新消息（本地 DB 会忽略重复插入或用 INSERT OR REPLACE）
+        // 这里使用 addMessages，它不会覆盖已存在的消息
+        addMessages(toInsert)
+        logger.debug('[chat-run-socket] syncToolMessageToLocalDb: synced %d messages for session %s', toInsert.length, localSessionId)
+      }
+    } catch (err) {
+      logger.warn(err, '[chat-run-socket] syncToolMessageToLocalDb failed for session %s (hermesId: %s)', localSessionId, hermesSessionId)
+    }
   }
 
 
