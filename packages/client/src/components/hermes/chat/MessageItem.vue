@@ -185,6 +185,36 @@ function deriveToolOutput(tc: Message): string {
   return "";
 }
 
+function isSkillStep(name?: string): boolean {
+  return (name || "").toLowerCase().includes("skill");
+}
+
+function renderedStepInput(tc: Message): string {
+  if (tc.toolArgs && tc.toolArgs.trim()) {
+    const html = jsonToPrettyHtml(tc.toolArgs);
+    if (html) return html;
+  }
+  const text = deriveToolInput(tc);
+  return text ? escapeHtml(text) : '';
+}
+
+function renderedStepOutput(tc: Message): string {
+  if (tc.toolResult && tc.toolResult.trim()) {
+    try {
+      const parsed = JSON.parse(tc.toolResult);
+      if (typeof parsed === 'object' && parsed !== null) {
+        return jsonToPrettyHtml(tc.toolResult);
+      }
+    } catch { /* not JSON */ }
+    const raw = tc.toolResult;
+    return escapeHtml(raw.length > 4000 ? raw.slice(0, 4000) + '…' : raw);
+  }
+  if (tc.toolStatus === 'running') {
+    return escapeHtml(tc.toolPreview || '等待执行结果...');
+  }
+  return '';
+}
+
 // Parse ContentBlock[] from JSON string
 const contentBlocks = computed(() => {
   const content = props.message.content || '';
@@ -730,6 +760,30 @@ onBeforeUnmount(() => {
                 <div v-if="step.type === 'assistant'" class="process-note">
                   {{ step.message.content }}
                 </div>
+                <!-- Skill bubble -->
+                <div
+                  v-else-if="isSkillStep(step.message.toolName)"
+                  class="skill-bubble"
+                  :class="{ open: isToolExpanded(step.message.id) }"
+                >
+                  <div class="skill-header" @click="toggleTool(step.message.id)">
+                    <span class="skill-tag">SKILL</span>
+                    <span class="skill-name">{{ step.message.toolName }}</span>
+                    <div class="tool-status">
+                      <span class="status-dot" :class="toolStatusClass(step.message.toolStatus)"></span>
+                      <span class="status-label">{{ toolStatusText(step.message.toolStatus) }}</span>
+                      <span v-if="step.message.toolDuration && step.message.toolStatus !== 'running'" class="duration">{{ formatDuration(step.message.toolDuration) }}</span>
+                    </div>
+                    <span class="chevron">▾</span>
+                  </div>
+                  <div class="tool-divider"></div>
+                  <div class="skill-body">
+                    <div class="skill-body-inner">
+                      <div class="skill-content" v-html="renderedStepOutput(step.message)"></div>
+                    </div>
+                  </div>
+                </div>
+                <!-- Regular tool bubble -->
                 <div
                   v-else
                   class="tool-bubble"
@@ -750,14 +804,14 @@ onBeforeUnmount(() => {
                     <div class="tool-body-inner">
                       <div class="tool-section">
                         <div class="section-label">Input</div>
-                        <pre class="param-block">{{ deriveToolInput(step.message) }}</pre>
+                        <div class="param-block" v-html="renderedStepInput(step.message)"></div>
                       </div>
                       <div class="tool-section">
                         <div class="section-label">Output</div>
                         <div v-if="step.message.toolStatus === 'running'" class="progress-bar">
                           <span class="progress-fill"></span>
                         </div>
-                        <pre class="result-block" :class="{ 'stream-text': step.message.toolStatus === 'running', 'success': step.message.toolStatus === 'done', 'error-r': step.message.toolStatus === 'error' }">{{ deriveToolOutput(step.message) }}</pre>
+                        <div class="result-block" :class="{ 'stream-text': step.message.toolStatus === 'running', 'success': step.message.toolStatus === 'done', 'error-r': step.message.toolStatus === 'error' }" v-html="renderedStepOutput(step.message)"></div>
                       </div>
                     </div>
                   </div>
@@ -1993,6 +2047,11 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   word-break: break-word;
   margin: 0;
+
+  :deep(.param-key) { color: var(--purple); }
+  :deep(.param-str) { color: var(--green); }
+  :deep(.param-num) { color: var(--amber); }
+  :deep(.param-keyword) { color: var(--red); font-style: italic; }
 
   &.success {
     border-left: 2px solid var(--green);
