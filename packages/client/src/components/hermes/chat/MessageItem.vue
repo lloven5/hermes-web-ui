@@ -321,6 +321,31 @@ const hasAttachments = computed(
   () => (props.message.attachments?.length ?? 0) > 0,
 );
 
+const hasVisibleMessageContent = computed(() => {
+  if (props.message.role === "assistant") {
+    return !!(parsedThinking.body?.trim() || props.message.content?.trim());
+  }
+  if (props.message.role === "user") {
+    return !!(displayText.value?.trim() || props.message.content?.trim());
+  }
+  return !!props.message.content?.trim();
+});
+
+const hasInlineContentAttachments = computed(
+  () => (contentFiles.value?.length ?? 0) > 0,
+);
+
+const shouldRenderNonToolMessage = computed(() => {
+  if (props.message.role === "tool") return true;
+  return (
+    hasVisibleMessageContent.value ||
+    hasAttachments.value ||
+    hasInlineContentAttachments.value ||
+    hasThinking.value ||
+    !!props.message.isStreaming
+  );
+});
+
 const hasToolDetails = computed(
   () => !!(props.message.toolArgs || props.message.toolResult),
 );
@@ -430,6 +455,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div
+    v-if="message.role === 'tool' || shouldRenderNonToolMessage"
     class="message"
     :class="[message.role, { highlight }]"
     :id="`message-${message.id}`"
