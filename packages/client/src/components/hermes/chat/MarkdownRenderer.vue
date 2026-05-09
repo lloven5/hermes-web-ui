@@ -57,7 +57,12 @@ let renderGeneration = 0
 let unmounted = false
 
 const renderedHtml = computed(() => {
-  let html = md.render(repairNestedMarkdownFences(props.content))
+  let content = props.content
+
+  // Strip YAML frontmatter (---...--- at the start of the file)
+  content = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '')
+
+  let html = md.render(repairNestedMarkdownFences(content))
 
   // Replace image src paths with download URLs
   // Replace both src="/path" and src='/path' formats
