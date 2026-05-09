@@ -34,9 +34,9 @@ const drawerActiveTab = ref<"terminal" | "files">("files");
 // Drawer button drag functionality
 const drawerButtonRef = ref<HTMLDivElement | null>(null);
 const drawerButtonPos = ref({ bottom: 50, right: 16 }); // percentage-based initial position
-const isDrawerDragging = ref(false);
 const isMobileView = ref(false);
 const drawerDragStart = ref({ x: 0, y: 0 });
+const drawerHasMoved = ref(false);
 
 // Load saved position from localStorage
 const savedDrawerPos = localStorage.getItem("hermes_drawer_button_pos");
@@ -53,9 +53,18 @@ function onDrawerMouseDown(e: MouseEvent) {
   // Only enable drag on desktop
   if (isMobileView.value) return;
   
+  e.stopPropagation();
   drawerDragStart.value = { x: e.clientX, y: e.clientY };
+  drawerHasMoved.value = false;
   document.addEventListener("mousemove", onDrawerMouseMove);
   document.addEventListener("mouseup", onDrawerMouseUp);
+}
+
+function onDrawerButtonClick() {
+  // Only open drawer if it wasn't being dragged
+  if (!drawerHasMoved.value) {
+    showDrawer.value = true;
+  }
 }
 
 function onDrawerMouseMove(e: MouseEvent) {
@@ -65,44 +74,36 @@ function onDrawerMouseMove(e: MouseEvent) {
   const dy = Math.abs(e.clientY - drawerDragStart.value.y);
   
   // If moved enough, start dragging (threshold: 5px)
-  if (!isDrawerDragging.value && (dx > 5 || dy > 5)) {
-    isDrawerDragging.value = true;
-    // Stop click event propagation
-    const button = drawerButtonRef.value.querySelector('.drawer-button');
-    if (button) {
-      const clickHandler = (ev: Event) => ev.stopPropagation();
-      button.addEventListener('click', clickHandler, { once: true });
-    }
+  if (dx > 5 || dy > 5) {
+    drawerHasMoved.value = true;
   }
   
-  if (!isDrawerDragging.value) return;
+  if (!drawerHasMoved.value) return;
   
-  const container = drawerButtonRef.value.parentElement;
-  if (!container) return;
+  // Calculate position so button center follows mouse (relative to viewport)
+  // right: distance from right edge in pixels
+  // bottom: distance from bottom edge in pixels
+  const rightPx = window.innerWidth - e.clientX;
+  const bottomPx = window.innerHeight - e.clientY;
   
-  const containerRect = container.getBoundingClientRect();
+  // Convert to percentages (100 = right edge, 100 = bottom edge)
+  const rightPercent = (rightPx / window.innerWidth) * 100;
+  const bottomPercent = (bottomPx / window.innerHeight) * 100;
   
-  // Calculate position so button center follows mouse
-  // right: distance from right edge in percentage
-  // bottom: distance from bottom edge in percentage
-  const mouseFromRight = containerRect.right - e.clientX;
-  const mouseFromBottom = containerRect.bottom - e.clientY;
-  
-  const rightPercent = (mouseFromRight / containerRect.width) * 100;
-  const bottomPercent = (mouseFromBottom / containerRect.height) * 100;
-  
-  // Clamp values to keep button visible (5% margin from edges)
+  // Clamp values to keep button visible (2% margin from edges)
   drawerButtonPos.value = {
-    right: Math.max(5, Math.min(95, rightPercent)),
-    bottom: Math.max(5, Math.min(95, bottomPercent)),
+    right: Math.max(2, Math.min(98, rightPercent)),
+    bottom: Math.max(2, Math.min(98, bottomPercent)),
   };
 }
 
 function onDrawerMouseUp() {
-  if (isDrawerDragging.value) {
-    isDrawerDragging.value = false;
+  if (drawerHasMoved.value) {
     localStorage.setItem("hermes_drawer_button_pos", JSON.stringify(drawerButtonPos.value));
   }
+  setTimeout(() => {
+    drawerHasMoved.value = false;
+  }, 50);
   document.removeEventListener("mousemove", onDrawerMouseMove);
   document.removeEventListener("mouseup", onDrawerMouseUp);
 }
@@ -951,7 +952,7 @@ function handleSkillInsert(skillName: string) {
       :class="{ dragging: isDrawerDragging }"
       @mousedown="onDrawerMouseDown"
     >
-      <div class="drawer-button" @click="showDrawer = true">
+      <div class="drawer-button" @click.stop="onDrawerButtonClick">
         <svg
           width="20"
           height="20"
@@ -1399,8 +1400,8 @@ function handleSkillInsert(skillName: string) {
 // ─── Drawer button ─────────────────────────────────────────────
 
 .drawer-button-wrapper {
-  position: absolute;
-  right: 16px;
+  position: fixed;
+  right: 0;
   bottom: 50%;
   transform: translateY(50%);
   z-index: 100;

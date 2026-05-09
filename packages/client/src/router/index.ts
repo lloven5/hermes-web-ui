@@ -25,6 +25,12 @@ const router = createRouter({
   routes: [
     {
       path: '/',
+      name: 'launch',
+      component: () => import('@/views/LaunchView.vue'),
+      meta: { public: true },
+    },
+    {
+      path: '/login',
       name: 'login',
       component: () => import('@/views/LoginView.vue'),
       meta: { public: true },
@@ -121,7 +127,11 @@ router.beforeEach((to, _from, next) => {
 
   // If auth not checked yet, always go to launch page first
   if (!authChecked) {
-    next({ name: 'login' })
+    if (to.name !== 'launch') {
+      next({ name: 'launch' })
+      return
+    }
+    next()
     return
   }
 

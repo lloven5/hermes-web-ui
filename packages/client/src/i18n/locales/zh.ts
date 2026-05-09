@@ -1,4 +1,10 @@
 export default {
+  // 启动/加载
+  launch: {
+    checking: '正在检查连接...',
+    error: '连接失败',
+  },
+
   // 登录
   login: {
     title: 'Hermes Web UI',

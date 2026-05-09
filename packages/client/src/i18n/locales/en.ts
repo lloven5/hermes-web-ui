@@ -1,4 +1,10 @@
 export default {
+  // Launch / Loading
+  launch: {
+    checking: 'Checking connection...',
+    error: 'Connection failed',
+  },
+
   // Login
   login: {
     title: 'Hermes Web UI',

@@ -18,7 +18,7 @@ const route = useRoute()
 const themeOverrides = computed(() => getThemeOverrides(isDark.value))
 const naiveTheme = computed(() => isDark.value ? darkTheme : null)
 
-const isLoginPage = computed(() => route.name === 'login')
+const isLoginPage = computed(() => route.name === 'login' || route.name === 'launch')
 
 const nodeVersionLow = computed(() => {
   const v = appStore.nodeVersion
