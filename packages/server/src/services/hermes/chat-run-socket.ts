@@ -140,6 +140,7 @@ interface SessionMessage {
   tool_call_id?: string | null
   tool_calls?: any[] | null
   tool_name?: string | null
+  tool_input?: string | null  // 工具调用参数（JSON 字符串）
   timestamp: number
   token_count?: number | null
   finish_reason?: string | null
@@ -1028,14 +1029,26 @@ export class ChatRunSocket {
                   if (last?.role === 'assistant' && last.finish_reason == null) {
                     last.finish_reason = 'tool_calls'
                   }
+                  // 支持新的 input 字段（JSON 对象）或 legacy 的 arguments 字段
+                  let toolInput: string = ''
+                  if (parsed.input != null) {
+                    toolInput = typeof parsed.input === 'string'
+                      ? parsed.input
+                      : JSON.stringify(parsed.input)
+                  } else if (parsed.arguments != null) {
+                    toolInput = typeof parsed.arguments === 'string'
+                      ? parsed.arguments
+                      : JSON.stringify(parsed.arguments)
+                  }
                   msgs.push({
                     id: msgs.length + 1,
                     session_id,
                     role: 'tool',
                     hermesSessionId,
-                    content: '',
+                    content: toolInput, // 使用 toolInput 作为 content（会被 mapHermesMessages 解析）
                     tool_call_id: parsed.tool_call_id || null,
                     tool_name: parsed.tool || parsed.name || null,
+                    tool_input: toolInput, // 保留原始 input 便于后续处理
                     timestamp: Math.floor(Date.now() / 1000),
                   })
                   break

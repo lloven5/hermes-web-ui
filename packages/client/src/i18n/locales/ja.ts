@@ -2,6 +2,8 @@ export default {
   // ログイン
   login: {
     title: 'Hermes Web UI',
+    loading: '読み込み中...',
+    redirecting: 'リダイレクト中...',
     description: 'アクセストークンを入力して続行してください。サーバーの起動ログで確認できます。',
     placeholder: 'アクセストークン',
     submit: 'ログイン',
@@ -114,7 +116,7 @@ export default {
     contextEditInvalid: '有効なコンテキスト長を入力してください',
     contextEditSuccess: 'コンテキスト長を更新しました',
     contextEditFailed: '更新に失敗しました',
-    emptyState: 'Hermes Agent と会話を開始しましょう',
+    emptyState: 'SciClaw Agent と会話を開始しましょう',
     inputPlaceholder: 'メッセージを入力... (Enter で送信、Shift+Enter で改行)',
     attachFiles: 'ファイルを添付',
     messageQueue: 'メッセージキュー',
@@ -126,6 +128,7 @@ export default {
     webUiSessions: 'セッション',
     tabSessions: 'セッション',
     tabSkills: 'スキル',
+    searchSessions: 'セッションを検索...',
     searchSkills: 'スキルを検索...',
     insertSkill: 'スキルを挿入',
     sessionScopeHint: 'チャットには Web UI/API Server セッションのみ表示されます。CLI、Telegram、Discord、Cron などのチャンネルセッションは履歴で読み取り専用として表示されます。',

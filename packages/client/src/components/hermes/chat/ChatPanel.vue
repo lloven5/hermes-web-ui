@@ -35,6 +35,10 @@ const currentMode = ref<"chat" | "live">("chat");
 const sidebarTab = ref<"sessions" | "skills">("sessions");
 const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null);
 
+// Session search
+const sessionSearchQuery = ref('');
+const sessionSearchRef = ref<InstanceType<typeof NInput> | null>(null);
+
 // Batch selection mode
 const isBatchMode = ref(false);
 const selectedSessionIds = ref<Set<string>>(new Set());
@@ -101,18 +105,37 @@ interface SessionGroup {
   sessions: Session[];
 }
 
-const pinnedSessions = computed(() =>
-  sortSessionsWithActiveFirst(
-    chatStore.sessions.filter((session) =>
-      sessionBrowserPrefsStore.isPinned(session.id),
-    ),
-  ),
-);
+const pinnedSessions = computed(() => {
+  let sessions = chatStore.sessions.filter((session) =>
+    sessionBrowserPrefsStore.isPinned(session.id),
+  );
+  if (sessionSearchQuery.value) {
+    const q = sessionSearchQuery.value.toLowerCase();
+    sessions = sessions.filter(s =>
+      s.title?.toLowerCase().includes(q) ||
+      s.id?.toLowerCase().includes(q) ||
+      s.model?.toLowerCase().includes(q)
+    );
+  }
+  return sortSessionsWithActiveFirst(sessions);
+});
 
 const groupedSessions = computed<SessionGroup[]>(() => {
   const map = new Map<string, Session[]>();
   for (const s of chatStore.sessions) {
     if (sessionBrowserPrefsStore.isPinned(s.id)) continue;
+
+    // Filter by search query
+    if (sessionSearchQuery.value) {
+      const q = sessionSearchQuery.value.toLowerCase();
+      if (
+        !s.title?.toLowerCase().includes(q) &&
+        !s.id?.toLowerCase().includes(q) &&
+        !s.model?.toLowerCase().includes(q)
+      ) {
+        continue;
+      }
+    }
     const key = s.source || "";
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(s);
@@ -499,6 +522,15 @@ function handleSkillInsert(skillName: string) {
         @insert="handleSkillInsert"
       />
       <div v-if="showSessions && sidebarTab === 'sessions'" class="session-items">
+        <div class="session-search">
+          <NInput
+            ref="sessionSearchRef"
+            v-model:value="sessionSearchQuery"
+            :placeholder="t('chat.searchSessions')"
+            size="tiny"
+            clearable
+          />
+        </div>
         <div class="session-footer">
           <NButton
             v-if="!isBatchMode"
@@ -1031,6 +1063,12 @@ function handleSkillInsert(skillName: string) {
   flex: 1;
   overflow-y: auto;
   padding: 0 6px 12px;
+}
+
+.session-search {
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  flex-shrink: 0;
 }
 
 .session-footer {

@@ -1055,6 +1055,13 @@ export const useChatStore = defineStore('chat', () => {
                 })
                 activeAssistantMessageId = newId
               }
+              // 支持新的 input 字段（来自上游 Hermes Gateway）或 legacy 的 arguments 字段
+              let toolArgs: string | undefined
+              if (evt.input != null) {
+                toolArgs = typeof evt.input === 'string' ? evt.input : JSON.stringify(evt.input, null, 2)
+              } else if (evt.arguments != null) {
+                toolArgs = typeof evt.arguments === 'string' ? evt.arguments : JSON.stringify(evt.arguments, null, 2)
+              }
               addMessage(sid, {
                 id: uid(),
                 role: 'tool',
@@ -1062,6 +1069,7 @@ export const useChatStore = defineStore('chat', () => {
                 timestamp: Date.now(),
                 toolName: evt.tool || evt.name,
                 toolPreview: evt.preview,
+                toolArgs,
                 toolStatus: 'running',
               })
 
@@ -1495,6 +1503,13 @@ export const useChatStore = defineStore('chat', () => {
             })
             activeAssistantMessageId = newId
           }
+          // 支持新的 input 字段（来自上游 Hermes Gateway）或 legacy 的 arguments 字段
+          let toolArgs: string | undefined
+          if (evt.input != null) {
+            toolArgs = typeof evt.input === 'string' ? evt.input : JSON.stringify(evt.input, null, 2)
+          } else if (evt.arguments != null) {
+            toolArgs = typeof evt.arguments === 'string' ? evt.arguments : JSON.stringify(evt.arguments, null, 2)
+          }
           addMessage(sid, {
             id: uid(),
             role: 'tool',
@@ -1502,6 +1517,7 @@ export const useChatStore = defineStore('chat', () => {
             timestamp: Date.now(),
             toolName: evt.tool || evt.name,
             toolPreview: evt.preview,
+            toolArgs,
             toolStatus: 'running',
           })
 

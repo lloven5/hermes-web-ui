@@ -34,6 +34,10 @@ export interface RunEvent {
   tool?: string
   name?: string
   preview?: string
+  /** Tool call arguments (JSON object or string), from `tool.started` event. */
+  input?: Record<string, unknown> | string | null
+  /** Legacy alternative field name for tool arguments. */
+  arguments?: Record<string, unknown> | string | null
   timestamp?: number
   error?: string
   /** Final response text on `run.completed`. May be empty/null if the agent

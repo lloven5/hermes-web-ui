@@ -2,6 +2,8 @@ export default {
   // 登录
   login: {
     title: 'Hermes Web UI',
+    loading: '加载中...',
+    redirecting: '正在跳转...',
     description: '输入访问令牌以继续。令牌在服务端启动日志中查看。',
     placeholder: '访问令牌',
     submit: '登录',
@@ -124,7 +126,7 @@ export default {
     contextEditInvalid: '请输入有效的上下文长度',
     contextEditSuccess: '上下文长度已更新',
     contextEditFailed: '更新失败',
-    emptyState: '开始与 Hermes Agent 对话',
+    emptyState: '开始与 SciClaw 对话',
     inputPlaceholder: '输入消息... (Enter 发送，Shift+Enter 换行)',
     attachFiles: '添加附件',
     autoPlaySpeech: '自动播放语音',
@@ -139,6 +141,7 @@ export default {
     webUiSessions: '会话',
     tabSessions: '会话',
     tabSkills: '技能',
+    searchSessions: '搜索会话...',
     searchSkills: '搜索技能...',
     insertSkill: '引用技能',
     sessionScopeHint: '',

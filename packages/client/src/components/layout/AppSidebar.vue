@@ -8,7 +8,6 @@ import ModelSelector from "./ModelSelector.vue";
 import ProfileSelector from "./ProfileSelector.vue";
 import LanguageSwitch from "./LanguageSwitch.vue";
 import ThemeSwitch from "./ThemeSwitch.vue";
-import { useSessionSearch } from '@/composables/useSessionSearch'
 import { changelog } from "@/data/changelog";
 
 const { t } = useI18n();
@@ -16,7 +15,6 @@ const message = useMessage();
 const route = useRoute();
 const router = useRouter();
 const appStore = useAppStore();
-const { openSessionSearch } = useSessionSearch();
 const selectedKey = computed(() => route.name as string);
 const logoPath = '/sciclaw.png';
 
@@ -43,10 +41,6 @@ async function handleUpdate() {
   }
 }
 
-function handleLogout() {
-  localStorage.clear();
-  router.replace({ name: 'login' });
-}
 
 // Changelog
 const showChangelog = ref(false);
@@ -102,13 +96,6 @@ function openChangelog() {
               <path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
             <span>{{ t("sidebar.groupChat") }}<span class="beta-tag">(beta)</span></span>
-          </button>
-          <button class="nav-item" @click="openSessionSearch">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
-            </svg>
-            <span>{{ t("sidebar.search") }}</span>
           </button>
         </div>
       </div>
@@ -240,14 +227,6 @@ function openChangelog() {
     <ModelSelector />
 
     <div class="sidebar-footer">
-      <button class="nav-item logout-item" @click="handleLogout">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-          <polyline points="16 17 21 12 16 7" />
-          <line x1="21" y1="12" x2="9" y2="12" />
-        </svg>
-        <span>{{ t("sidebar.logout") }}</span>
-      </button>
       <div class="status-row">
         <div
           class="status-indicator"
@@ -264,13 +243,8 @@ function openChangelog() {
           }}</span>
         </div>
         <LanguageSwitch />
-      </div>
-      <div class="version-info">
         <ThemeSwitch />
       </div>
-      <NButton v-if="appStore.updateAvailable" type="primary" size="tiny" block class="update-btn" :loading="appStore.updating" @click="handleUpdate">
-        {{ appStore.updating ? t('sidebar.updating') : t('sidebar.updateVersion', { version: appStore.latestVersion }) }}
-      </NButton>
     </div>
 
     <!-- Changelog modal -->
@@ -464,6 +438,7 @@ function openChangelog() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 8px 12px;
 }
 

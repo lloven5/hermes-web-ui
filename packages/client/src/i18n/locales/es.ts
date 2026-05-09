@@ -2,6 +2,8 @@ export default {
   // Login
   login: {
     title: 'Hermes Web UI',
+    loading: 'Cargando...',
+    redirecting: 'Redirigiendo...',
     description: 'Introduce tu token de acceso para continuar. Encuentralo en los registros de inicio del servidor.',
     placeholder: 'Token de acceso',
     submit: 'Iniciar sesion',
@@ -114,7 +116,7 @@ export default {
     contextEditInvalid: 'Por favor ingresa una longitud de contexto válida',
     contextEditSuccess: 'Longitud del contexto actualizada',
     contextEditFailed: 'Error en la actualización',
-    emptyState: 'Inicia una conversacion con Hermes Agent',
+    emptyState: 'Inicia una conversacion con SciClaw Agent',
     inputPlaceholder: 'Escribe un mensaje... (Enter para enviar, Shift+Enter para nueva linea)',
     attachFiles: 'Adjuntar archivos',
     messageQueue: 'Cola de mensajes',
@@ -126,6 +128,7 @@ export default {
     webUiSessions: 'Sesiones',
     tabSessions: 'Sesiones',
     tabSkills: 'Habilidades',
+    searchSessions: 'Buscar sesiones...',
     searchSkills: 'Buscar habilidades...',
     insertSkill: 'Insertar habilidad',
     sessionScopeHint: 'Chat solo muestra sesiones de Web UI/API Server. Las sesiones de CLI, Telegram, Discord, Cron y otros canales son de solo lectura en Historial.',

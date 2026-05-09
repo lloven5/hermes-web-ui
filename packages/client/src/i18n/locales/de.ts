@@ -2,6 +2,8 @@ export default {
   // Login
   login: {
     title: 'Hermes Web UI',
+    loading: 'Laden...',
+    redirecting: 'Weiterleitung...',
     description: 'Geben Sie Ihren Zugangs-Token ein, um fortzufahren. Finden Sie ihn in den Server-Startprotokollen.',
     placeholder: 'Zugangs-Token',
     submit: 'Anmelden',
@@ -114,7 +116,7 @@ export default {
     contextEditInvalid: 'Bitte geben Sie eine gültige Kontextlänge ein',
     contextEditSuccess: 'Kontextlänge aktualisiert',
     contextEditFailed: 'Aktualisierung fehlgeschlagen',
-    emptyState: 'Starten Sie eine Konversation mit Hermes Agent',
+    emptyState: 'Starten Sie eine Konversation mit SciClaw Agent',
     inputPlaceholder: 'Nachricht eingeben... (Enter zum Senden, Shift+Enter fur neue Zeile)',
     attachFiles: 'Dateien anhangen',
     messageQueue: 'Nachrichtenwarteschlange',
@@ -126,6 +128,7 @@ export default {
     webUiSessions: 'Sitzungen',
     tabSessions: 'Sitzungen',
     tabSkills: 'Fähigkeiten',
+    searchSessions: 'Sitzungen suchen...',
     searchSkills: 'Fähigkeiten suchen...',
     insertSkill: 'Fähigkeit einfügen',
     sessionScopeHint: 'Chat zeigt nur Web-UI/API-Server-Sitzungen. CLI-, Telegram-, Discord-, Cron- und andere Kanal-Sitzungen sind schreibgeschützt im Verlauf.',

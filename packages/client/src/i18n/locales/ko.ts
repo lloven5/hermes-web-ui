@@ -2,6 +2,8 @@ export default {
   // 로그인
   login: {
     title: 'Hermes Web UI',
+    loading: '로딩 중...',
+    redirecting: '이동 중...',
     description: '계속하려면 액세스 토큰을 입력하세요. 서버 시작 로그에서 확인할 수 있습니다.',
     placeholder: '액세스 토큰',
     submit: '로그인',
@@ -114,7 +116,7 @@ export default {
     contextEditInvalid: '유효한 컨텍스트 길이를 입력하세요',
     contextEditSuccess: '컨텍스트 길이가 업데이트되었습니다',
     contextEditFailed: '업데이트 실패',
-    emptyState: 'Hermes Agent와 대화를 시작하세요',
+    emptyState: 'SciClaw Agent와 대화를 시작하세요',
     inputPlaceholder: '메시지를 입력하세요... (Enter로 전송, Shift+Enter로 줄바꿈)',
     attachFiles: '파일 첨부',
     messageQueue: '메시지 대기열',
@@ -126,6 +128,7 @@ export default {
     webUiSessions: '세션',
     tabSessions: '세션',
     tabSkills: '스킬',
+    searchSessions: '세션 검색...',
     searchSkills: '스킬 검색...',
     insertSkill: '스킬 삽입',
     sessionScopeHint: '채팅에는 Web UI/API Server 세션만 표시됩니다. CLI, Telegram, Discord, Cron 등 채널 세션은 기록에서 읽기 전용으로 볼 수 있습니다.',
