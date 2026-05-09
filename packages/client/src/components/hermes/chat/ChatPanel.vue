@@ -31,6 +31,97 @@ const { t } = useI18n();
 const showDrawer = ref(false);
 const drawerActiveTab = ref<"terminal" | "files">("files");
 
+// Drawer button drag functionality
+const drawerButtonRef = ref<HTMLDivElement | null>(null);
+const drawerButtonPos = ref({ bottom: 50, right: 16 }); // percentage-based initial position
+const isDrawerDragging = ref(false);
+const isMobileView = ref(false);
+const drawerDragStart = ref({ x: 0, y: 0 });
+
+// Load saved position from localStorage
+const savedDrawerPos = localStorage.getItem("hermes_drawer_button_pos");
+if (savedDrawerPos) {
+  try {
+    const parsed = JSON.parse(savedDrawerPos);
+    drawerButtonPos.value = parsed;
+  } catch (e) {
+    // Use default
+  }
+}
+
+function onDrawerMouseDown(e: MouseEvent) {
+  // Only enable drag on desktop
+  if (isMobileView.value) return;
+  
+  drawerDragStart.value = { x: e.clientX, y: e.clientY };
+  document.addEventListener("mousemove", onDrawerMouseMove);
+  document.addEventListener("mouseup", onDrawerMouseUp);
+}
+
+function onDrawerMouseMove(e: MouseEvent) {
+  if (!drawerButtonRef.value) return;
+  
+  const dx = Math.abs(e.clientX - drawerDragStart.value.x);
+  const dy = Math.abs(e.clientY - drawerDragStart.value.y);
+  
+  // If moved enough, start dragging (threshold: 5px)
+  if (!isDrawerDragging.value && (dx > 5 || dy > 5)) {
+    isDrawerDragging.value = true;
+    // Stop click event propagation
+    const button = drawerButtonRef.value.querySelector('.drawer-button');
+    if (button) {
+      const clickHandler = (e: Event) => e.stopPropagation();
+      button.addEventListener('click', clickHandler, { once: true });
+    }
+  }
+  
+  if (!isDrawerDragging.value) return;
+  
+  const container = drawerButtonRef.value.parentElement;
+  if (!container) return;
+  
+  const containerRect = container.getBoundingClientRect();
+  const rect = drawerButtonRef.value.getBoundingClientRect();
+  
+  // Calculate new position based on initial click offset
+  const newRight = containerRect.right - e.clientX + rect.width / 2;
+  const newBottom = containerRect.bottom - e.clientY + rect.height / 2;
+  
+  const rightPercent = (newRight / containerRect.width) * 100;
+  const bottomPercent = (newBottom / containerRect.height) * 100;
+  
+  // Clamp values to keep button visible
+  drawerButtonPos.value = {
+    right: Math.max(0, Math.min(90, rightPercent)),
+    bottom: Math.max(5, Math.min(95, bottomPercent)),
+  };
+}
+
+function onDrawerMouseUp() {
+  if (isDrawerDragging.value) {
+    isDrawerDragging.value = false;
+    localStorage.setItem("hermes_drawer_button_pos", JSON.stringify(drawerButtonPos.value));
+  }
+  document.removeEventListener("mousemove", onDrawerMouseMove);
+  document.removeEventListener("mouseup", onDrawerMouseUp);
+}
+
+// Update mobile view state
+function updateMobileView() {
+  isMobileView.value = window.innerWidth <= 768;
+}
+
+onMounted(() => {
+  updateMobileView();
+  window.addEventListener("resize", updateMobileView);
+});
+
+onUnmounted(() => {
+  document.removeEventListener("mousemove", onDrawerMouseMove);
+  document.removeEventListener("mouseup", onDrawerMouseUp);
+  window.removeEventListener("resize", updateMobileView);
+});
+
 const currentMode = ref<"chat" | "live">("chat");
 const sidebarTab = ref<"sessions" | "skills">("sessions");
 const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null);
@@ -852,7 +943,13 @@ function handleSkillInsert(skillName: string) {
     </div>
 
     <!-- Floating drawer button -->
-    <div class="drawer-button-wrapper">
+    <div
+      ref="drawerButtonRef"
+      class="drawer-button-wrapper"
+      :style="{ right: drawerButtonPos.right + '%', bottom: drawerButtonPos.bottom + '%' }"
+      :class="{ dragging: isDrawerDragging }"
+      @mousedown="onDrawerMouseDown"
+    >
       <div class="drawer-button" @click="showDrawer = true">
         <svg
           width="20"
@@ -945,6 +1042,7 @@ function handleSkillInsert(skillName: string) {
   padding: 12px;
   flex-shrink: 0;
   min-height: 0;
+  font-size: 16px;
 }
 
 .session-list-actions {
@@ -1001,7 +1099,7 @@ function handleSkillInsert(skillName: string) {
   border: none;
   background: none;
   color: $text-muted;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   padding: 3px 8px;
   border-radius: 4px;
@@ -1302,8 +1400,8 @@ function handleSkillInsert(skillName: string) {
 .drawer-button-wrapper {
   position: absolute;
   right: 16px;
-  top: 50%;
-  transform: translateY(-50%);
+  bottom: 50%;
+  transform: translateY(50%);
   z-index: 100;
   background: $bg-card;
   border-radius: 50%;
@@ -1311,13 +1409,24 @@ function handleSkillInsert(skillName: string) {
     0 0 10px rgba(255, 107, 107, 0.4),
     0 0 20px rgba(255, 107, 107, 0.2);
   animation: rainbow-glow 8s linear infinite;
-  transition: all $transition-fast;
+  transition: box-shadow $transition-fast;
+  cursor: grab;
 
   &:hover {
     animation-play-state: paused;
     box-shadow:
       0 0 15px rgba(255, 107, 107, 0.6),
       0 0 30px rgba(255, 107, 107, 0.3);
+  }
+
+  &.dragging {
+    cursor: grabbing;
+    animation-play-state: paused;
+    transform: translateY(50%) scale(1.1);
+    box-shadow:
+      0 0 20px rgba(255, 107, 107, 0.8),
+      0 0 40px rgba(255, 107, 107, 0.4);
+    transition: box-shadow $transition-fast;
   }
 }
 
@@ -1405,6 +1514,12 @@ function handleSkillInsert(skillName: string) {
 @media (max-width: $breakpoint-mobile) {
   .drawer-button-wrapper {
     right: 12px;
+    transform: translateY(50%);
+    
+    &:hover,
+    &.dragging {
+      transform: translateY(50%);
+    }
   }
 
   .drawer-button {

@@ -9,7 +9,7 @@ import { setAuthDisabled, setAuthChecked } from "@/router";
 const { t } = useI18n();
 const router = useRouter();
 
-const phase = ref<"loading" | "login" | "redirecting">("loading");
+const phase = ref<"login" | "redirecting">("login");
 const urlToken = (window as any).__LOGIN_TOKEN__ || "";
 const token = ref(urlToken);
 const username = ref("");
@@ -25,15 +25,13 @@ onMounted(async () => {
     if (status.authDisabled) {
       setAuthDisabled(true);
       setAuthChecked(true);
-      phase.value = "redirecting";
-      setTimeout(() => router.replace("/hermes/chat"), 800);
+      setTimeout(() => router.replace("/hermes/chat"), 100);
       return;
     }
     setAuthDisabled(false);
     if (hasApiKey()) {
       setAuthChecked(true);
-      phase.value = "redirecting";
-      setTimeout(() => router.replace("/hermes/chat"), 800);
+      setTimeout(() => router.replace("/hermes/chat"), 100);
       return;
     }
     hasPasswordLogin.value = status.hasPasswordLogin;
@@ -41,12 +39,10 @@ onMounted(async () => {
       loginMethod.value = "password";
     }
     setAuthChecked(true);
-    phase.value = "login";
   } catch {
     setAuthDisabled(true);
     setAuthChecked(true);
-    phase.value = "redirecting";
-    setTimeout(() => router.replace("/hermes/chat"), 800);
+    setTimeout(() => router.replace("/hermes/chat"), 100);
   }
 });
 
@@ -114,84 +110,59 @@ async function handlePasswordLogin() {
 </script>
 
 <template>
-  <div class="launch-view">
-    <!-- Ambient background -->
-    <div class="launch-bg">
-      <div class="orb orb-1" />
-      <div class="orb orb-2" />
-      <div class="orb orb-3" />
-    </div>
+  <div class="login-view">
+    <div class="login-content">
+      <h1 class="login-title">{{ t('login.title') }}</h1>
+      <p class="login-description">{{ t('login.description') }}</p>
 
-    <div class="launch-content" :class="phase">
-      <!-- Logo -->
-      <div class="launch-logo">
-        <div class="logo-ring">
-          <img src="/sciclaw.png" alt="SciClaw" class="logo-img" />
+      <form class="login-form" @submit.prevent="handleLogin">
+        <div v-if="hasPasswordLogin" class="login-method-toggle">
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ active: loginMethod === 'password' }"
+            @click="loginMethod = 'password'"
+          >{{ t("login.passwordLogin") }}</button>
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ active: loginMethod === 'token' }"
+            @click="loginMethod = 'token'"
+          >{{ t("login.tokenLogin") }}</button>
         </div>
-      </div>
 
-      <!-- Brand -->
-      <h1 class="launch-title">SciClaw</h1>
-      <p class="launch-subtitle">{{ phase === 'loading' ? t('login.loading') : phase === 'redirecting' ? t('login.redirecting') : t('login.description') }}</p>
+        <template v-if="loginMethod === 'token'">
+          <input
+            v-model="token"
+            type="password"
+            class="login-input"
+            :placeholder="t('login.placeholder')"
+            autofocus
+          />
+        </template>
 
-      <!-- Loading spinner -->
-      <div v-if="phase === 'loading' || phase === 'redirecting'" class="launch-spinner">
-        <div class="spinner-track">
-          <div class="spinner-fill" />
-        </div>
-      </div>
+        <template v-if="loginMethod === 'password'">
+          <input
+            v-model="username"
+            type="text"
+            class="login-input"
+            :placeholder="t('login.usernamePlaceholder')"
+            autofocus
+          />
+          <input
+            v-model="password"
+            type="password"
+            class="login-input"
+            :placeholder="t('login.passwordPlaceholder')"
+            @keyup.enter="handleLogin"
+          />
+        </template>
 
-      <!-- Login form (only when auth is required) -->
-      <Transition name="form-fade">
-        <form v-if="phase === 'login'" class="login-form" @submit.prevent="handleLogin">
-          <div v-if="hasPasswordLogin" class="login-method-toggle">
-            <button
-              type="button"
-              class="toggle-btn"
-              :class="{ active: loginMethod === 'password' }"
-              @click="loginMethod = 'password'"
-            >{{ t("login.passwordLogin") }}</button>
-            <button
-              type="button"
-              class="toggle-btn"
-              :class="{ active: loginMethod === 'token' }"
-              @click="loginMethod = 'token'"
-            >{{ t("login.tokenLogin") }}</button>
-          </div>
-
-          <template v-if="loginMethod === 'token'">
-            <input
-              v-model="token"
-              type="password"
-              class="login-input"
-              :placeholder="t('login.placeholder')"
-              autofocus
-            />
-          </template>
-
-          <template v-if="loginMethod === 'password'">
-            <input
-              v-model="username"
-              type="text"
-              class="login-input"
-              :placeholder="t('login.usernamePlaceholder')"
-              autofocus
-            />
-            <input
-              v-model="password"
-              type="password"
-              class="login-input"
-              :placeholder="t('login.passwordPlaceholder')"
-              @keyup.enter="handleLogin"
-            />
-          </template>
-
-          <div v-if="errorMsg" class="login-error">{{ errorMsg }}</div>
-          <button type="submit" class="login-btn" :disabled="loading">
-            {{ loading ? "..." : t("login.submit") }}
-          </button>
-        </form>
-      </Transition>
+        <div v-if="errorMsg" class="login-error">{{ errorMsg }}</div>
+        <button type="submit" class="login-btn" :disabled="loading">
+          {{ loading ? "..." : t("login.submit") }}
+        </button>
+      </form>
     </div>
   </div>
 </template>
@@ -199,7 +170,7 @@ async function handlePasswordLogin() {
 <style scoped lang="scss">
 @use "@/styles/variables" as *;
 
-.launch-view {
+.login-view {
   position: relative;
   height: calc(100 * var(--vh));
   display: flex;
@@ -209,176 +180,26 @@ async function handlePasswordLogin() {
   background: $bg-primary;
 }
 
-// ── Ambient Background ──
-
-.launch-bg {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.07;
-  animation: orb-drift 20s ease-in-out infinite alternate;
-}
-
-.dark .orb {
-  opacity: 0.05;
-}
-
-.orb-1 {
-  width: 500px;
-  height: 500px;
-  top: -10%;
-  left: -5%;
-  background: $text-primary;
-  animation-duration: 22s;
-}
-
-.orb-2 {
-  width: 400px;
-  height: 400px;
-  bottom: -15%;
-  right: -8%;
-  background: $accent-primary;
-  animation-duration: 18s;
-  animation-delay: -5s;
-}
-
-.orb-3 {
-  width: 300px;
-  height: 300px;
-  top: 40%;
-  right: 20%;
-  background: $text-secondary;
-  animation-duration: 25s;
-  animation-delay: -10s;
-}
-
-@keyframes orb-drift {
-  0% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(30px, -20px) scale(1.05); }
-  100% { transform: translate(-20px, 30px) scale(0.95); }
-}
-
-// ── Content ──
-
-.launch-content {
-  position: relative;
-  z-index: 1;
+.login-content {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  width: 400px;
+  width: 320px;
   max-width: calc(100vw - 32px);
   text-align: center;
-
-  &.redirecting {
-    animation: content-exit 0.6s ease forwards;
-  }
 }
 
-@keyframes content-exit {
-  to {
-    opacity: 0;
-    transform: translateY(-12px);
-  }
-}
-
-// ── Logo ──
-
-.launch-logo {
-  margin-bottom: 24px;
-}
-
-.logo-ring {
-  position: relative;
-  width: 96px;
-  height: 96px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  &::before {
-    content: '';
-    position: absolute;
-    inset: -4px;
-    border-radius: 50%;
-    border: 1.5px solid $border-color;
-    animation: ring-pulse 3s ease-in-out infinite;
-  }
-
-  &::after {
-    content: '';
-    position: absolute;
-    inset: -12px;
-    border-radius: 50%;
-    border: 1px solid $border-light;
-    opacity: 0.4;
-    animation: ring-pulse 3s ease-in-out infinite 1.5s;
-  }
-}
-
-@keyframes ring-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.4; }
-  50% { transform: scale(1.06); opacity: 0.8; }
-}
-
-.logo-img {
-  width: 72px;
-  height: 72px;
-  border-radius: 16px;
-  object-fit: contain;
-}
-
-// ── Typography ──
-
-.launch-title {
-  font-size: 28px;
+.login-title {
+  font-size: 24px;
   font-weight: 600;
   color: $text-primary;
-  margin: 0 0 6px;
-  letter-spacing: -0.02em;
+  margin: 0 0 8px;
 }
 
-.launch-subtitle {
+.login-description {
   font-size: 13px;
   color: $text-muted;
-  margin: 0 0 28px;
+  margin: 0 0 20px;
   line-height: 1.5;
-  min-height: 20px;
-  transition: opacity 0.3s ease;
-}
-
-// ── Spinner ──
-
-.launch-spinner {
-  margin-top: 4px;
-}
-
-.spinner-track {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 2px solid $border-light;
-  position: relative;
-}
-
-.spinner-fill {
-  position: absolute;
-  inset: -2px;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  border-top-color: $text-primary;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 // ── Login Form ──
@@ -388,7 +209,6 @@ async function handlePasswordLogin() {
   flex-direction: column;
   gap: 14px;
   width: 100%;
-  margin-top: 4px;
 }
 
 .form-fade-enter-active {
