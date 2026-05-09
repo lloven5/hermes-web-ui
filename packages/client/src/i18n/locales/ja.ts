@@ -68,7 +68,6 @@ export default {
   sidebar: {
     chat: 'チャット',
     search: '検索',
-    apiRelay: 'APIリレー',
     history: '履歴',
     jobs: 'ジョブ',
     models: 'モデル',

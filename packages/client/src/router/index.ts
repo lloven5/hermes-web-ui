@@ -1,6 +1,16 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { hasApiKey } from '@/api/client'
 
+let authDisabled = false
+
+export function setAuthDisabled(value: boolean) {
+  authDisabled = value
+}
+
+export function isAuthDisabled(): boolean {
+  return authDisabled
+}
+
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
@@ -91,8 +101,8 @@ const router = createRouter({
 router.beforeEach((to, _from, next) => {
   // Public pages don't need auth
   if (to.meta.public) {
-    // Already has key, skip login
-    if (to.name === 'login' && hasApiKey()) {
+    // Already has key or auth disabled, skip login
+    if (to.name === 'login' && (hasApiKey() || authDisabled)) {
       next({ path: '/hermes/chat' })
       return
     }
@@ -100,13 +110,13 @@ router.beforeEach((to, _from, next) => {
     return
   }
 
-  // All other pages require token
-  if (!hasApiKey()) {
-    next({ name: 'login' })
+  // All other pages: allow if auth disabled or has token
+  if (authDisabled || hasApiKey()) {
+    next()
     return
   }
 
-  next()
+  next({ name: 'login' })
 })
 
 export default router

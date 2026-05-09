@@ -1,6 +1,7 @@
 import { request } from './client'
 
 export interface AuthStatus {
+  authDisabled: boolean
   hasPasswordLogin: boolean
   username: string | null
 }

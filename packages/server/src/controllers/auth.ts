@@ -7,8 +7,10 @@ import { getToken } from '../services/auth'
  * Check if username/password login is configured (public).
  */
 export async function authStatus(ctx: Context) {
+  const authDisabled = process.env.AUTH_DISABLED !== '0' && process.env.AUTH_DISABLED !== 'false'
   const cred = await getCredentials()
   ctx.body = {
+    authDisabled,
     hasPasswordLogin: !!cred,
     username: cred?.username || null,
   }

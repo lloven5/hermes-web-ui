@@ -14,7 +14,7 @@ function generateToken(): string {
  * Get or create the auth token. Returns null if auth is disabled.
  */
 export async function getToken(): Promise<string | null> {
-  if (process.env.AUTH_DISABLED === '1' || process.env.AUTH_DISABLED === 'true') {
+  if (process.env.AUTH_DISABLED !== '0' && process.env.AUTH_DISABLED !== 'false') {
     return null
   }
 

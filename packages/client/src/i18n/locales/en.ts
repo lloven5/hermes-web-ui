@@ -70,7 +70,6 @@ export default {
   sidebar: {
     chat: 'Chat',
     search: 'Search',
-    apiRelay: 'API Relay',
     history: 'History',
     jobs: 'Jobs',
     models: 'Models',

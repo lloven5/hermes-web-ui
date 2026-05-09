@@ -220,7 +220,7 @@ onMounted(loadSkills)
   width: 100%;
   padding: 6px 10px;
   border: none;
-  background: rgba(128, 128, 128, 0.05);
+  background: rgba(128, 128, 128, 0.12);
   color: $text-secondary;
   font-size: 11px;
   font-weight: 600;
@@ -228,10 +228,10 @@ onMounted(loadSkills)
   letter-spacing: 0.3px;
   cursor: pointer;
   border-radius: $radius-sm;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
 
   &:hover {
-    background: rgba(var(--accent-primary-rgb), 0.08);
+    background: rgba(var(--accent-primary-rgb), 0.12);
   }
 }
 

@@ -70,7 +70,6 @@ export default {
   sidebar: {
     chat: '对话',
     search: '搜索',
-    apiRelay: '中转站',
     history: '历史',
     jobs: '任务',
     models: '模型',

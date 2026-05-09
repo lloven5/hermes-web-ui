@@ -1,4 +1,4 @@
-import router from '@/router'
+import router, { isAuthDisabled } from '@/router'
 
 const DEFAULT_BASE_URL = ''
 
@@ -70,7 +70,7 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
     !path.startsWith('/api/hermes/jobs') &&
     !path.startsWith('/api/hermes/skills')
 
-  if (res.status === 401 && isLocalBff) {
+  if (res.status === 401 && isLocalBff && !isAuthDisabled()) {
     clearApiKey()
     if (router.currentRoute.value.name !== 'login') {
       router.replace({ name: 'login' })

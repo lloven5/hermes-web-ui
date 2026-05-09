@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { setApiKey, hasApiKey } from "@/api/client";
 import { fetchAuthStatus, loginWithPassword } from "@/api/auth";
+import { setAuthDisabled } from "@/router";
 
 const { t } = useI18n();
 const router = useRouter();
@@ -29,6 +30,11 @@ if (hasApiKey()) {
 onMounted(async () => {
   try {
     const status = await fetchAuthStatus();
+    if (status.authDisabled) {
+      setAuthDisabled(true);
+      router.replace("/hermes/chat");
+      return;
+    }
     hasPasswordLogin.value = status.hasPasswordLogin;
     if (status.hasPasswordLogin && !urlToken) {
       loginMethod.value = "password";

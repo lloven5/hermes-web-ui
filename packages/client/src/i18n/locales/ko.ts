@@ -68,7 +68,6 @@ export default {
   sidebar: {
     chat: '채팅',
     search: '검색',
-    apiRelay: 'API 릴레이',
     history: '기록',
     jobs: '예약 작업',
     models: '모델',

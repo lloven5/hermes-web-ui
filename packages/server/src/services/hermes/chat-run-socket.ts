@@ -1047,6 +1047,17 @@ export class ChatRunSocket {
                   if (toolMsg && parsed.output) {
                     toolMsg.content = typeof parsed.output === 'string' ? parsed.output : JSON.stringify(parsed.output)
                   }
+                  // 只有明确 error: true 才标记为错误，否则工具执行成功
+                  const hasError = parsed.error === true
+                  // 转发 tool.completed 事件给前端，包含 error 字段
+                  emit('tool.completed', {
+                    event: 'tool.completed',
+                    tool_call_id: parsed.tool_call_id,
+                    tool_name: parsed.tool || parsed.name,
+                    output: parsed.output,
+                    duration: parsed.duration,
+                    error: hasError || undefined, // 只有 true 才发送，false/undefined 不发送
+                  })
                   // 每个工具完成后立即同步最新消息到本地 DB，让前端可以及时查询到完整数据
                   // 包括 assistant 消息中的 tool_calls (arguments)
                   void this.syncToolMessageToLocalDb(session_id, hermesSessionId)
