@@ -70,7 +70,7 @@ function onDrawerMouseMove(e: MouseEvent) {
     // Stop click event propagation
     const button = drawerButtonRef.value.querySelector('.drawer-button');
     if (button) {
-      const clickHandler = (e: Event) => e.stopPropagation();
+      const clickHandler = (ev: Event) => ev.stopPropagation();
       button.addEventListener('click', clickHandler, { once: true });
     }
   }
@@ -81,18 +81,19 @@ function onDrawerMouseMove(e: MouseEvent) {
   if (!container) return;
   
   const containerRect = container.getBoundingClientRect();
-  const rect = drawerButtonRef.value.getBoundingClientRect();
   
-  // Calculate new position based on initial click offset
-  const newRight = containerRect.right - e.clientX + rect.width / 2;
-  const newBottom = containerRect.bottom - e.clientY + rect.height / 2;
+  // Calculate position so button center follows mouse
+  // right: distance from right edge in percentage
+  // bottom: distance from bottom edge in percentage
+  const mouseFromRight = containerRect.right - e.clientX;
+  const mouseFromBottom = containerRect.bottom - e.clientY;
   
-  const rightPercent = (newRight / containerRect.width) * 100;
-  const bottomPercent = (newBottom / containerRect.height) * 100;
+  const rightPercent = (mouseFromRight / containerRect.width) * 100;
+  const bottomPercent = (mouseFromBottom / containerRect.height) * 100;
   
-  // Clamp values to keep button visible
+  // Clamp values to keep button visible (5% margin from edges)
   drawerButtonPos.value = {
-    right: Math.max(0, Math.min(90, rightPercent)),
+    right: Math.max(5, Math.min(95, rightPercent)),
     bottom: Math.max(5, Math.min(95, bottomPercent)),
   };
 }
