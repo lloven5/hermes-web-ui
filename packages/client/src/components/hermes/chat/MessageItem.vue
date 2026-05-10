@@ -542,7 +542,8 @@ const hasAttachments = computed(
 
 const hasVisibleMessageContent = computed(() => {
   if (props.message.role === "assistant") {
-    return !!(parsedThinking.body?.trim() || props.message.content?.trim());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return !!(parsedThinking.value.segments?.length || (props.message as any).content?.trim());
   }
   if (props.message.role === "user") {
     return !!(displayText.value?.trim() || props.message.content?.trim());
@@ -982,9 +983,10 @@ onBeforeUnmount(() => {
                 <MarkdownRenderer :content="thinkingFullText" />
               </div>
             </div>
+            <!-- Render assistant message body from parsed thinking (fallback for <think> tags) -->
             <MarkdownRenderer
-              v-if="parsedThinking.body && message.role === 'assistant'"
-              :content="parsedThinking.body"
+              v-if="(message.role as string) === 'assistant' && parsedThinking.segments?.length"
+              :content="parsedThinking.segments.join('\n\n')"
             />
 
             <!-- Render user message content -->
@@ -1028,9 +1030,9 @@ onBeforeUnmount(() => {
               <MarkdownRenderer v-else-if="message.content" :content="message.content" />
             </template>
 
-            <!-- Render assistant message content -->
+            <!-- Render assistant message content (when no <think> tags present) -->
             <MarkdownRenderer
-              v-if="message.role === 'assistant' && message.content && !parsedThinking.body"
+              v-if="(message.role as string) === 'assistant' && message.content && !parsedThinking.segments?.length"
               :content="message.content"
             />
 

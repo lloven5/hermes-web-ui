@@ -5,6 +5,51 @@ export default {
     error: '连接失败',
   },
 
+  // MCP 服务器
+  mcp: {
+    title: 'MCP 服务器',
+    search: '搜索服务器...',
+    reload: '重载',
+    addServer: '添加服务器',
+    addFirstServer: '添加第一个 MCP 服务器',
+    noServers: '暂无 MCP 服务器',
+    tools: '工具',
+    connected: '已连接',
+    disconnected: '已断开',
+    test: '测试',
+    testConnection: '测试连接',
+    reloadAll: '重载所有',
+    url: 'URL',
+    command: '命令',
+    args: '参数',
+    transport: '传输方式',
+    headers: 'HTTP 头',
+    timeout: '超时时间',
+    enabled: '启用',
+    serverName: '服务器名称',
+    namePlaceholder: '输入服务器名称...',
+    urlRequired: '请输入 URL',
+    commandRequired: '请输入命令',
+    nameRequired: '服务器名称不能为空',
+    invalidHeaders: 'HTTP 头格式无效',
+    loadError: '加载失败',
+    reloadError: '重载失败',
+    testSuccess: '连接成功 ({name})，发现 {count} 个工具',
+    testFailed: '连接失败 ({name}): {error}',
+    testError: '测试失败',
+    testOk: '测试通过，{count} 个工具',
+    deleteSuccess: '已删除服务器 {name}',
+    deleteError: '删除失败',
+    deleteConfirm: '确定要删除 {name} 吗？',
+    addSuccess: '已添加服务器 {name}',
+    addError: '添加失败',
+    updateSuccess: '已更新服务器 {name}',
+    updateError: '更新失败',
+    editServer: '编辑服务器',
+    addNewServer: '添加新服务器',
+    selectServer: '选择一个服务器查看详情',
+  },
+
   // 登录
   login: {
     title: 'Hermes Web UI',
@@ -74,6 +119,7 @@ export default {
     stop: '停止',
   },
 
+
   // 侧边栏
   sidebar: {
     chat: '对话',
@@ -84,6 +130,7 @@ export default {
     profiles: '用户',
     skills: '技能',
     memory: '记忆',
+    mcp: 'MCP',
     logs: '日志',
     usage: '用量',
     channels: '频道',
@@ -113,11 +160,13 @@ export default {
     noChangelog: '暂无更新日志',
   },
 
+
   // 抽屉
   drawer: {
     terminal: '终端',
     files: '工作区',
   },
+
 
   // 对话
   chat: {
@@ -228,6 +277,7 @@ export default {
     speechNotSupported: '此浏览器不支持语音播放',
   },
 
+
   // 定时任务
   jobs: {
     title: '定时任务',
@@ -294,6 +344,7 @@ export default {
     },
   },
 
+
   // 技能
   skills: {
     title: '技能',
@@ -318,6 +369,7 @@ export default {
     },
   },
 
+
   // 记忆
   memory: {
     title: '记忆',
@@ -333,6 +385,7 @@ export default {
     noSoul: '暂无灵魂配置。',
     soulPlaceholder: '输入灵魂配置...',
   },
+
 
   // 模型
   models: {
@@ -415,6 +468,7 @@ export default {
     fetchFailed: '获取模型失败',
   },
 
+
   // 配置
   profiles: {
     title: '配置',
@@ -466,6 +520,7 @@ export default {
     noProfiles: '暂无配置，创建一个开始吧。',
   },
 
+
   // 日志
   logs: {
     title: '日志',
@@ -474,6 +529,7 @@ export default {
     refresh: '刷新',
     noEntries: '暂无日志',
   },
+
 
   // 设置
   settings: {
@@ -485,6 +541,7 @@ export default {
       account: '账户',
       agent: '代理',
       memory: '记忆',
+    mcp: 'MCP',
       session: '会话',
       privacy: '隐私',
       apiServer: 'API 服务器',
@@ -577,6 +634,7 @@ export default {
     },
   },
 
+
   // 平台频道设置
   platform: {
     requireMention: "需要 {'@'}提及",
@@ -647,6 +705,7 @@ export default {
     qqQrScanHint: '使用 QQ 扫描上方二维码，或在手机上打开链接完成绑定',
   },
 
+
   // 网关
   gateways: {
     title: '网关',
@@ -657,12 +716,14 @@ export default {
     stopFailed: '停止失败',
   },
 
+
   // 语言
   language: {
     label: '语言',
     zh: '中文',
     en: 'English',
   },
+
 
   // 终端
   terminal: {
@@ -676,6 +737,7 @@ export default {
     connectionClosed: '终端连接已关闭',
     connectionError: '终端连接错误',
   },
+
 
   // 群聊
   groupChat: {
@@ -726,6 +788,7 @@ export default {
     compressingInProgress: '正在压缩中，请稍后',
   },
 
+
   // 用量统计
   usage: {
     title: '用量统计',
@@ -748,6 +811,7 @@ export default {
     cost: '费用',
     noData: '暂无用量数据',
   },
+
   // 文件管理
   files: {
     title: '文件',
@@ -798,6 +862,7 @@ export default {
     closePreview: '关闭',
     saveFile: '保存',
   },
+
   // 下载
   download: {
     downloading: '正在下载...',
@@ -811,6 +876,7 @@ export default {
     download: '下载',
     downloadFile: '下载文件',
   },
+
 
   // 更新日志
   changelog: {
@@ -931,4 +997,5 @@ export default {
     new_0_4_2_4: 'Chat 页面新增固定会话和实时监控',
     new_0_4_2_5: '修复内置 Provider 检测和模型匹配问题',
   },
+
 }

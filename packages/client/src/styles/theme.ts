@@ -142,7 +142,7 @@ export const darkThemeOverrides: GlobalThemeOverrides = {
     railColor: '#3a3a3a',
     railColorActive: '#66bb6a',
     loadingColor: '#e0e0e0',
-    opacityDisabled: 0.4,
+    opacityDisabled: '0.4',
   },
 }
 

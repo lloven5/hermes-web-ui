@@ -144,6 +144,7 @@ function hasToolCallDetails(tc: {
   toolArgs?: string;
   toolResult?: string;
   toolPreview?: string;
+  toolName?: string;
 }): boolean {
   return !!(tc.toolArgs || tc.toolResult || tc.toolPreview || tc.toolName);
 }
