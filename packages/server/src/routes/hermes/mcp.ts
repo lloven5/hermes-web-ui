@@ -27,6 +27,15 @@ mcpRoutes.get('/api/hermes/mcp/servers/:name/tools', ctrl.getTools)
 // POST /api/hermes/mcp/reload - Reload MCP servers
 mcpRoutes.post('/api/hermes/mcp/reload', ctrl.reload)
 
+// POST /api/hermes/mcp/servers/:name/connect - Connect to an MCP server
+mcpRoutes.post('/api/hermes/mcp/servers/:name/connect', ctrl.connect)
+
+// POST /api/hermes/mcp/servers/:name/disconnect - Disconnect from an MCP server
+mcpRoutes.post('/api/hermes/mcp/servers/:name/disconnect', ctrl.disconnect)
+
+// GET /api/hermes/mcp/servers/:name/status - Get MCP server connection status
+mcpRoutes.get('/api/hermes/mcp/servers/:name/status', ctrl.serverStatus)
+
 // GET /api/hermes/mcp/status - Get MCP status
 mcpRoutes.get('/api/hermes/mcp/status', ctrl.status)
 

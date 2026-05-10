@@ -152,3 +152,23 @@ export async function fetchMCPStatus(): Promise<MCPStatusResponse> {
 export async function fetchAllMCPTools(): Promise<MCCAllToolsResponse> {
   return request<MCCAllToolsResponse>('/api/hermes/mcp/tools')
 }
+
+// POST /api/hermes/mcp/servers/{name}/connect
+export async function connectMCPServer(name: string, timeout?: number): Promise<MCPServerTestResult> {
+  const url = `/api/hermes/mcp/servers/${encodeURIComponent(name)}/connect`
+  return request<MCPServerTestResult>(timeout ? `${url}?timeout=${timeout}` : url, {
+    method: 'POST',
+  })
+}
+
+// POST /api/hermes/mcp/servers/{name}/disconnect
+export async function disconnectMCPServer(name: string): Promise<MCPServerTestResult> {
+  return request<MCPServerTestResult>(`/api/hermes/mcp/servers/${encodeURIComponent(name)}/disconnect`, {
+    method: 'POST',
+  })
+}
+
+// GET /api/hermes/mcp/servers/{name}/status
+export async function getMCPServerStatus(name: string): Promise<MCPServerTestResult> {
+  return request<MCPServerTestResult>(`/api/hermes/mcp/servers/${encodeURIComponent(name)}/status`)
+}

@@ -32,6 +32,8 @@ import {
   testMCPServer,
   reloadMCPServers,
   fetchMCPStatus,
+  connectMCPServer,
+  disconnectMCPServer,
 } from '@/api/hermes/mcp'
 
 type TransportType = 'http' | 'stdio'
@@ -146,6 +148,53 @@ async function handleDelete(name: string) {
     }
   } catch (err: any) {
     message.error(t('mcp.deleteError') + ': ' + (err.message || 'Unknown error'))
+  }
+}
+
+async function handleToggleEnabled(server: MCPServerConfig, enabled: boolean) {
+  try {
+    await updateMCPServer(server.name, { enabled })
+    message.success(enabled ? t('mcp.enabledSuccess') : t('mcp.disabledSuccess'))
+    await loadServers()
+  } catch (err: any) {
+    message.error(t('mcp.toggleError') + ': ' + (err.message || 'Unknown error'))
+  }
+}
+
+const connectingServer = ref<string | null>(null)
+const disconnectingServer = ref<string | null>(null)
+
+async function handleConnect(name: string) {
+  connectingServer.value = name
+  try {
+    const result = await connectMCPServer(name)
+    if (result.success) {
+      message.success(t('mcp.connectSuccess', { name, count: result.tool_count }))
+      await loadServers()
+    } else {
+      message.warning(t('mcp.connectFailed', { name, error: result.error }))
+    }
+  } catch (err: any) {
+    message.error(t('mcp.connectError') + ': ' + (err.message || 'Unknown error'))
+  } finally {
+    connectingServer.value = null
+  }
+}
+
+async function handleDisconnect(name: string) {
+  disconnectingServer.value = name
+  try {
+    const result = await disconnectMCPServer(name)
+    if (result.success) {
+      message.success(t('mcp.disconnectSuccess', { name }))
+      await loadServers()
+    } else {
+      message.warning(t('mcp.disconnectFailed', { name, error: result.error }))
+    }
+  } catch (err: any) {
+    message.error(t('mcp.disconnectError') + ': ' + (err.message || 'Unknown error'))
+  } finally {
+    disconnectingServer.value = null
   }
 }
 
@@ -346,6 +395,11 @@ onMounted(() => {
                 <span class="server-name">{{ server.name }}</span>
               </div>
               <div class="server-badges">
+                <NSwitch
+                  size="small"
+                  :value="server.enabled !== false"
+                  @update:value="(val: boolean) => handleToggleEnabled(server, val)"
+                />
                 <NTag size="tiny" :type="server.transport === 'http' ? 'info' : 'warning'">
                   {{ server.transport.toUpperCase() }}
                 </NTag>
@@ -395,6 +449,7 @@ onMounted(() => {
 
           <template #action>
             <NSpace>
+              <!-- Test button -->
               <NButton
                 size="tiny"
                 :loading="testingServer === server.name"
@@ -402,6 +457,7 @@ onMounted(() => {
               >
                 {{ t('mcp.test') }}
               </NButton>
+              
               <NButton size="tiny" @click="openEditModal(server)">
                 {{ t('common.edit') }}
               </NButton>

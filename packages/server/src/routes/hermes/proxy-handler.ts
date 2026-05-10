@@ -66,7 +66,7 @@ function resolveProfile(ctx: Context): string {
 }
 
 /** Resolve upstream URL for a request based on profile header/query */
-function resolveUpstream(ctx: Context): string {
+export function resolveUpstream(ctx: Context): string {
   const mgr = getGatewayManager()
   if (mgr) {
     const profile = resolveProfile(ctx)
