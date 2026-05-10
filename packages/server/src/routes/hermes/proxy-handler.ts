@@ -65,20 +65,8 @@ function resolveProfile(ctx: Context): string {
   }
 }
 
-/** Resolve upstream URL for /api/mcp/* requests (uses dashboard port with MCP API) */
-const DASHBOARD_UPSTREAM = process.env.DASHBOARD_UPSTREAM || 'http://127.0.0.1:9119'
-
-function isMCPRequest(ctx: Context): boolean {
-  return ctx.path.startsWith('/api/mcp/')
-}
-
 /** Resolve upstream URL for a request based on profile header/query */
 function resolveUpstream(ctx: Context): string {
-  // MCP requests should go to dashboard which has the MCP API
-  if (isMCPRequest(ctx)) {
-    return DASHBOARD_UPSTREAM.replace(/\/$/, '')
-  }
-  
   const mgr = getGatewayManager()
   if (mgr) {
     const profile = resolveProfile(ctx)

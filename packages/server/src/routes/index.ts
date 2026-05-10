@@ -11,6 +11,7 @@ import { authPublicRoutes, authProtectedRoutes } from './auth'
 import { sessionRoutes } from './hermes/sessions'
 import { profileRoutes } from './hermes/profiles'
 import { skillRoutes } from './hermes/skills'
+import { mcpRoutes } from './hermes/mcp'
 import { memoryRoutes } from './hermes/memory'
 import { modelRoutes } from './hermes/models'
 import { providerRoutes } from './hermes/providers'
@@ -49,6 +50,7 @@ export function registerRoutes(app: any, requireAuth: (ctx: Context, next: Next)
   app.use(sessionRoutes.routes())
   app.use(profileRoutes.routes())
   app.use(skillRoutes.routes())
+  app.use(mcpRoutes.routes())                // MCP management API
   app.use(memoryRoutes.routes())
   app.use(modelRoutes.routes())
   app.use(providerRoutes.routes())

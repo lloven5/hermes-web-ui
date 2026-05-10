@@ -4,14 +4,14 @@ import { proxy } from './proxy-handler'
 
 export const proxyRoutes = new Router()
 
-// Proxy unmatched /api/hermes/*, /api/mcp/* and /v1/* to upstream Hermes API
+// Proxy unmatched /api/hermes/* and /v1/* to upstream Hermes API
+// Note: /api/hermes/mcp/* will be handled by proxyMiddleware to route to Dashboard
 proxyRoutes.all('/api/hermes/{*any}', proxy)
-proxyRoutes.all('/api/mcp/{*any}', proxy)
 proxyRoutes.all('/v1/{*any}', proxy)
 
 // Also register as middleware so it works reliably with nested .use()
 export async function proxyMiddleware(ctx: Context, next: Next) {
-  if (ctx.path.startsWith('/api/hermes/') || ctx.path.startsWith('/api/mcp/') || ctx.path.startsWith('/v1/')) {
+  if (ctx.path.startsWith('/api/hermes/') || ctx.path.startsWith('/v1/')) {
     return proxy(ctx)
   }
   await next()

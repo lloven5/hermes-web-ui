@@ -33,6 +33,7 @@ export interface MCPServerTestResult {
   tool_count: number
   tools: MCPToolInfo[]
   error?: string
+  message?: string
 }
 
 export interface MCPReloadResult {
@@ -89,65 +90,65 @@ export interface MCPServerUpdateRequest {
   timeout?: number
 }
 
-// GET /api/mcp/servers
+// GET /api/hermes/mcp/servers
 export async function fetchMCPServers(): Promise<MCPServerListResponse> {
-  return request<MCPServerListResponse>('/api/mcp/servers')
+  return request<MCPServerListResponse>('/api/hermes/mcp/servers')
 }
 
-// GET /api/mcp/servers/{name}
+// GET /api/hermes/mcp/servers/{name}
 export async function fetchMCPServer(name: string): Promise<MCPServerConfig> {
-  return request<MCPServerConfig>(`/api/mcp/servers/${encodeURIComponent(name)}`)
+  return request<MCPServerConfig>(`/api/hermes/mcp/servers/${encodeURIComponent(name)}`)
 }
 
-// POST /api/mcp/servers/{name}
+// POST /api/hermes/mcp/servers/{name}
 export async function createMCPServer(name: string, config: MCPServerCreateRequest): Promise<MCPServerConfig> {
-  return request<MCPServerConfig>(`/api/mcp/servers/${encodeURIComponent(name)}`, {
+  return request<MCPServerConfig>(`/api/hermes/mcp/servers/${encodeURIComponent(name)}`, {
     method: 'POST',
     body: JSON.stringify(config),
   })
 }
 
-// PUT /api/mcp/servers/{name}
+// PUT /api/hermes/mcp/servers/{name}
 export async function updateMCPServer(name: string, config: MCPServerUpdateRequest): Promise<MCPServerConfig> {
-  return request<MCPServerConfig>(`/api/mcp/servers/${encodeURIComponent(name)}`, {
+  return request<MCPServerConfig>(`/api/hermes/mcp/servers/${encodeURIComponent(name)}`, {
     method: 'PUT',
     body: JSON.stringify(config),
   })
 }
 
-// DELETE /api/mcp/servers/{name}
+// DELETE /api/hermes/mcp/servers/{name}
 export async function deleteMCPServer(name: string): Promise<void> {
-  await request(`/api/mcp/servers/${encodeURIComponent(name)}`, {
+  await request(`/api/hermes/mcp/servers/${encodeURIComponent(name)}`, {
     method: 'DELETE',
   })
 }
 
-// POST /api/mcp/servers/{name}/test
+// POST /api/hermes/mcp/servers/{name}/test
 export async function testMCPServer(name: string, timeout?: number): Promise<MCPServerTestResult> {
-  const url = `/api/mcp/servers/${encodeURIComponent(name)}/test`
+  const url = `/api/hermes/mcp/servers/${encodeURIComponent(name)}/test`
   return request<MCPServerTestResult>(timeout ? `${url}?timeout=${timeout}` : url, {
     method: 'POST',
   })
 }
 
-// GET /api/mcp/servers/{name}/tools
+// GET /api/hermes/mcp/servers/{name}/tools
 export async function fetchMCPServerTools(name: string): Promise<MCPServerToolsResponse> {
-  return request<MCPServerToolsResponse>(`/api/mcp/servers/${encodeURIComponent(name)}/tools`)
+  return request<MCPServerToolsResponse>(`/api/hermes/mcp/servers/${encodeURIComponent(name)}/tools`)
 }
 
-// POST /api/mcp/reload
+// POST /api/hermes/mcp/reload
 export async function reloadMCPServers(): Promise<MCPReloadResult> {
-  return request<MCPReloadResult>('/api/mcp/reload', {
+  return request<MCPReloadResult>('/api/hermes/mcp/reload', {
     method: 'POST',
   })
 }
 
-// GET /api/mcp/status
+// GET /api/hermes/mcp/status
 export async function fetchMCPStatus(): Promise<MCPStatusResponse> {
-  return request<MCPStatusResponse>('/api/mcp/status')
+  return request<MCPStatusResponse>('/api/hermes/mcp/status')
 }
 
-// GET /api/mcp/tools
+// GET /api/hermes/mcp/tools
 export async function fetchAllMCPTools(): Promise<MCCAllToolsResponse> {
-  return request<MCCAllToolsResponse>('/api/mcp/tools')
+  return request<MCCAllToolsResponse>('/api/hermes/mcp/tools')
 }
