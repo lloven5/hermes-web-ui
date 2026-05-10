@@ -356,22 +356,49 @@ export async function test(ctx: Context): Promise<void> {
   
   const serverConfig = servers[name]
   
-  // Only HTTP transport can be tested directly
-  if (serverConfig.transport !== 'http' && !serverConfig.url) {
-    ctx.status = 400
-    ctx.body = {
-      name,
-      success: false,
-      connected: false,
-      tool_count: 0,
-      tools: [],
-      error: "Only HTTP MCP servers can be tested. Stdio servers require MCP runtime."
+  // For stdio servers, use the connect API to test
+  if (serverConfig.transport !== 'http' || !serverConfig.url) {
+    const upstream = resolveUpstream(ctx)
+    const url = `${upstream}/api/mcp/servers/${encodeURIComponent(name)}/connect?timeout=${timeout}`
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+        },
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok) {
+        // Cache the result if connected
+        if (data.success && data.connected) {
+          cacheTestResult(name, true, data.tool_count ?? 0)
+        }
+        ctx.body = data
+      } else {
+        ctx.status = response.status
+        ctx.body = data
+      }
+    } catch (err) {
+      logger.error('Failed to test MCP server %s: %s', name, String(err))
+      ctx.status = 502
+      ctx.body = {
+        name,
+        success: false,
+        connected: false,
+        tool_count: 0,
+        tools: [],
+        error: `Failed to test: ${String(err)}`,
+      }
     }
     return
   }
   
+  // For HTTP servers, test directly
   try {
-    const result = await testHttpMCPServer(serverConfig.url!, serverConfig.headers, timeout)
+    const result = await testHttpMCPServer(serverConfig.url, serverConfig.headers, timeout)
     // Cache the test result for list API
     cacheTestResult(name, result.success, result.tool_count)
     ctx.body = result
