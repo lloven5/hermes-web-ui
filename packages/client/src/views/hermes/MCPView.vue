@@ -9,8 +9,6 @@ import {
   NSpin,
   NTag,
   NText,
-  NTabs,
-  NTabPane,
   NModal,
   NForm,
   NFormItem,
@@ -23,6 +21,7 @@ import { useI18n } from 'vue-i18n'
 import type {
   MCPServerConfig,
   MCPServerTestResult,
+  MCPToolInfo,
 } from '@/api/hermes/mcp'
 import {
   fetchMCPServers,
@@ -34,6 +33,7 @@ import {
   fetchMCPStatus,
   connectMCPServer,
   disconnectMCPServer,
+  fetchMCPServerTools,
 } from '@/api/hermes/mcp'
 
 type TransportType = 'http' | 'stdio'
@@ -52,6 +52,57 @@ const showEditModal = ref(false)
 const testingServer = ref<string | null>(null)
 const testResults = ref<Record<string, MCPServerTestResult>>({})
 const activeTab = ref('servers')
+const viewingToolsServer = ref<string | null>(null)
+const serverTools = ref<MCPToolInfo[]>([])
+const toolsLoading = ref(false)
+const showToolsModal = ref(false)
+
+// Expanded servers state for tool list collapse/expand
+const expandedServers = ref<Set<string>>(new Set())
+const serverToolsMap = ref<Record<string, MCPToolInfo[]>>({})
+const loadingServerTools = ref<Set<string>>(new Set())
+
+// Toggle server tools visibility
+function toggleServerTools(serverName: string) {
+  if (expandedServers.value.has(serverName)) {
+    expandedServers.value.delete(serverName)
+  } else {
+    expandedServers.value.add(serverName)
+    // Fetch tools if not already loaded
+    if (!serverToolsMap.value[serverName]) {
+      loadServerTools(serverName)
+    }
+  }
+  // Force reactivity update
+  expandedServers.value = new Set(expandedServers.value)
+}
+
+async function loadServerTools(serverName: string) {
+  loadingServerTools.value.add(serverName)
+  loadingServerTools.value = new Set(loadingServerTools.value)
+  try {
+    const result = await fetchMCPServerTools(serverName)
+    serverToolsMap.value[serverName] = result.tools || []
+  } catch (err: any) {
+    message.error(t('mcp.toolsError') + ': ' + (err.message || 'Unknown error'))
+    serverToolsMap.value[serverName] = []
+  } finally {
+    loadingServerTools.value.delete(serverName)
+    loadingServerTools.value = new Set(loadingServerTools.value)
+  }
+}
+
+function isServerExpanded(serverName: string): boolean {
+  return expandedServers.value.has(serverName)
+}
+
+function getServerTools(serverName: string): MCPToolInfo[] {
+  return serverToolsMap.value[serverName] || []
+}
+
+function isLoadingServerTools(serverName: string): boolean {
+  return loadingServerTools.value.has(serverName)
+}
 
 // Add/Edit form state
 const formName = ref('')
@@ -81,7 +132,6 @@ async function loadServers() {
   try {
     const data = await fetchMCPServers()
     servers.value = data.servers
-    // Also fetch status for quick overview
     try {
       const status = await fetchMCPStatus()
       statusInfo.value = {
@@ -198,6 +248,25 @@ async function handleDisconnect(name: string) {
   }
 }
 
+async function handleViewTools(name: string) {
+  viewingToolsServer.value = name
+  toolsLoading.value = true
+  serverTools.value = []
+  try {
+    const result = await fetchMCPServerTools(name)
+    serverTools.value = result.tools || []
+    showToolsModal.value = true
+    if (serverTools.value.length === 0) {
+      message.info(t('mcp.noTools', { name }))
+    }
+  } catch (err: any) {
+    message.error(t('mcp.toolsError') + ': ' + (err.message || 'Unknown error'))
+  } finally {
+    toolsLoading.value = false
+    viewingToolsServer.value = null
+  }
+}
+
 function openAddModal() {
   formName.value = ''
   formUrl.value = ''
@@ -206,7 +275,6 @@ function openAddModal() {
   formTransport.value = 'http'
   formEnabled.value = true
   formHeaders.value = ''
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   formTimeout.value = 30 as any
   showAddModal.value = true
 }
@@ -219,7 +287,6 @@ function openEditModal(server: MCPServerConfig) {
   formTransport.value = server.transport
   formEnabled.value = server.enabled
   formHeaders.value = server.headers ? JSON.stringify(server.headers, null, 2) : ''
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   formTimeout.value = server.timeout as any
   showEditModal.value = true
 }
@@ -428,14 +495,55 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- Test Result -->
           <div v-if="testResults[server.name]" class="test-result" :class="{ success: testResults[server.name].success, error: !testResults[server.name].success }">
             <template v-if="testResults[server.name].success">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                <polyline points="22 4 12 14.01 9 11.01"/>
-              </svg>
-              {{ t('mcp.testOk', { count: testResults[server.name].tool_count }) }}
+              <NSpace align="center" :size="8">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                  <polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+                <span>{{ t('mcp.testOk', { count: testResults[server.name].tool_count }) }}</span>
+                <NButton
+                  text
+                  size="tiny"
+                  @click.stop="toggleServerTools(server.name)"
+                >
+                  {{ isServerExpanded(server.name) ? '▲' : '▼' }} {{ t('mcp.tools') || 'tools' }}
+                </NButton>
+              </NSpace>
+              <!-- Expandable tools list -->
+              <div v-if="isServerExpanded(server.name)" class="tools-list">
+                <div v-if="isLoadingServerTools(server.name)" class="tools-loading">
+                  <NSpin size="small" /> {{ t('mcp.loadingTools') || 'Loading tools...' }}
+                </div>
+                <div v-else-if="getServerTools(server.name).length > 0" class="tools-items">
+                  <NTag
+                    v-for="tool in getServerTools(server.name)"
+                    :key="tool.name"
+                    size="small"
+                    type="info"
+                    :bordered="false"
+                    class="tool-tag"
+                  >
+                    {{ tool.name }}
+                  </NTag>
+                </div>
+                <div v-else-if="testResults[server.name].tools?.length > 0" class="tools-items">
+                  <NTag
+                    v-for="tool in testResults[server.name].tools"
+                    :key="tool.name"
+                    size="small"
+                    type="info"
+                    :bordered="false"
+                    class="tool-tag"
+                  >
+                    {{ tool.name }}
+                  </NTag>
+                </div>
+                <div v-else class="tools-empty">
+                  {{ t('mcp.noTools') || 'No tools available' }}
+                </div>
+              </div>
             </template>
             <template v-else>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -449,7 +557,6 @@ onMounted(() => {
 
           <template #action>
             <NSpace>
-              <!-- Test button -->
               <NButton
                 size="tiny"
                 :loading="testingServer === server.name"
@@ -608,6 +715,50 @@ onMounted(() => {
         </NSpace>
       </template>
     </NModal>
+
+    <!-- View Tools Modal -->
+    <NModal
+      v-model:show="showToolsModal"
+      preset="card"
+      :title="(viewingToolsServer || t('mcp.tools')) + ' 的工具'"
+      style="width: 600px; max-width: 90vw; max-height: 80vh;"
+      :mask-closable="true"
+      :segmented="{ content: true }"
+    >
+      <div v-if="toolsLoading" class="tools-loading">
+        <NSpin size="medium" />
+        <NText>{{ t('common.loading') }}</NText>
+      </div>
+      <div v-else-if="serverTools.length === 0" class="tools-empty">
+        <NEmpty :description="t('mcp.noTools') || '暂无工具'" />
+      </div>
+      <div v-else class="tools-list">
+        <NCard
+          v-for="tool in serverTools"
+          :key="tool.name"
+          class="tool-card"
+          :bordered="true"
+          hoverable
+        >
+          <template #header>
+            <div class="tool-header">
+              <span class="tool-name">{{ tool.name }}</span>
+            </div>
+          </template>
+          <p v-if="tool.description" class="tool-description">
+            {{ tool.description }}
+          </p>
+          <p v-else class="tool-description">
+            <NText depth="3">{{ t('mcp.noDescription') || '暂无描述' }}</NText>
+          </p>
+        </NCard>
+      </div>
+      <template #footer>
+        <NSpace justify="end">
+          <NButton @click="showToolsModal = false">{{ t('common.close') || '关闭' }}</NButton>
+        </NSpace>
+      </template>
+    </NModal>
   </div>
 </template>
 
@@ -745,9 +896,7 @@ onMounted(() => {
 }
 
 .test-result {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  display: block;
   padding: 8px 12px;
   border-radius: 4px;
   font-size: 13px;
@@ -762,5 +911,75 @@ onMounted(() => {
 .test-result.error {
   background: rgba(208, 48, 80, 0.1);
   color: var(--error-color, #d03050);
+}
+
+.test-result-success {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tools-list {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(24, 160, 88, 0.3);
+}
+
+.tools-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.tool-tag {
+  font-size: 11px;
+  font-family: monospace;
+}
+
+.tools-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  gap: 16px;
+}
+
+.tools-empty {
+  padding: 40px 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 0 4px;
+}
+
+.tool-card {
+  margin-bottom: 0;
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.tool-description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-color-2);
 }
 </style>

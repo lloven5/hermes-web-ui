@@ -172,3 +172,17 @@ export async function disconnectMCPServer(name: string): Promise<MCPServerTestRe
 export async function getMCPServerStatus(name: string): Promise<MCPServerTestResult> {
   return request<MCPServerTestResult>(`/api/hermes/mcp/servers/${encodeURIComponent(name)}/status`)
 }
+
+// POST /api/hermes/mcp/servers/{name}/start - Start (connect) an MCP server
+export async function startMCPServer(name: string): Promise<{ success: boolean; message: string; name: string }> {
+  return request<{ success: boolean; message: string; name: string }>(`/api/hermes/mcp/servers/${encodeURIComponent(name)}/start`, {
+    method: 'POST',
+  })
+}
+
+// POST /api/hermes/mcp/servers/{name}/stop - Stop (disconnect) an MCP server
+export async function stopMCPServer(name: string): Promise<{ success: boolean; message: string; name: string }> {
+  return request<{ success: boolean; message: string; name: string }>(`/api/hermes/mcp/servers/${encodeURIComponent(name)}/stop`, {
+    method: 'POST',
+  })
+}

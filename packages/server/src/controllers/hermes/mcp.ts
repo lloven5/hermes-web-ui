@@ -2,11 +2,10 @@ import type { Context } from 'koa'
 import YAML from 'js-yaml'
 import { readFile, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
-import * as http from 'http'
-import * as https from 'https'
 import { getActiveConfigPath } from '../../services/hermes/hermes-profile'
 import { logger } from '../../services/logger'
 import { resolveUpstream } from '../../routes/hermes/proxy-handler'
+import { proxy } from '../../routes/hermes/proxy-handler'
 
 // MCP Server config from config.yaml
 export interface MCPServerConfig {
@@ -268,13 +267,31 @@ export async function create(ctx: Context): Promise<void> {
     servers[name] = serverConfig
     await writeMCPServers(servers)
     
-    // Auto-test HTTP servers on create
+    // Auto-test HTTP servers on create - 通过 hermes-agent 测试
     const isHttpServer = serverConfig.transport === 'http' || !!serverConfig.url
     if (isHttpServer && serverConfig.url) {
       try {
         const timeout = serverConfig.timeout ?? 30
-        const result = await testHttpMCPServer(serverConfig.url, serverConfig.headers, timeout)
-        cacheTestResult(name, result.success, result.tool_count)
+        const upstream = resolveUpstream(ctx)
+        const testUrl = `${upstream}/api/mcp/servers/${encodeURIComponent(name)}/test?timeout=${timeout}`
+        const response = await fetch(testUrl, {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' },
+        })
+        const data = await response.json()
+        if (response.ok && data.success && data.connected) {
+          cacheTestResult(name, true, data.tool_count ?? 0)
+          // Auto-connect after successful test to establish persistent connection
+          const connectUrl = `${upstream}/api/mcp/servers/${encodeURIComponent(name)}/connect?timeout=${timeout}`
+          try {
+            await fetch(connectUrl, {
+              method: 'POST',
+              headers: { 'Accept': 'application/json' },
+            })
+          } catch (connectErr) {
+            logger.warn('Auto-connect after create test failed for MCP server %s: %s', name, String(connectErr))
+          }
+        }
       } catch (err) {
         // Test failed - leave as disconnected, clear any cached result
         logger.warn('Auto-test failed for MCP server %s: %s', name, String(err))
@@ -354,332 +371,66 @@ export async function test(ctx: Context): Promise<void> {
     return
   }
   
-  const serverConfig = servers[name]
+  // All servers (HTTP and stdio) 统一请求 hermes-agent 进行测试
+  const upstream = resolveUpstream(ctx)
+  const testUrl = `${upstream}/api/mcp/servers/${encodeURIComponent(name)}/test?timeout=${timeout}`
   
-  // For stdio servers, use the connect API to test
-  if (serverConfig.transport !== 'http' || !serverConfig.url) {
-    const upstream = resolveUpstream(ctx)
-    const url = `${upstream}/api/mcp/servers/${encodeURIComponent(name)}/connect?timeout=${timeout}`
-    
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-        },
-      })
-      
-      const data = await response.json()
-      
-      if (response.ok) {
-        // Cache the result if connected
-        if (data.success && data.connected) {
-          cacheTestResult(name, true, data.tool_count ?? 0)
-        }
-        ctx.body = data
-      } else {
-        ctx.status = response.status
-        ctx.body = data
-      }
-    } catch (err) {
-      logger.error('Failed to test MCP server %s: %s', name, String(err))
-      ctx.status = 502
-      ctx.body = {
-        name,
-        success: false,
-        connected: false,
-        tool_count: 0,
-        tools: [],
-        error: `Failed to test: ${String(err)}`,
-      }
-    }
-    return
-  }
-  
-  // For HTTP servers, test directly
   try {
-    const result = await testHttpMCPServer(serverConfig.url, serverConfig.headers, timeout)
-    // Cache the test result for list API
-    cacheTestResult(name, result.success, result.tool_count)
-    ctx.body = result
+    const response = await fetch(testUrl, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+      },
+    })
+    
+    const testData = await response.json()
+    
+    if (response.ok && testData.success && testData.connected) {
+      // Test successful - the MCP server's _probe_single_server creates a
+      // temporary connection that closes after getting tools. To keep the
+      // server "connected" in UI, we need to establish a persistent connection
+      // by calling the connect endpoint.
+      cacheTestResult(name, true, testData.tool_count ?? 0)
+      
+      // Now establish a persistent connection via connect endpoint
+      const connectUrl = `${upstream}/api/mcp/servers/${encodeURIComponent(name)}/connect?timeout=${timeout}`
+      try {
+        await fetch(connectUrl, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+          },
+        })
+      } catch (connectErr) {
+        // Connect failed, but test was successful - still return success
+        logger.warn('Auto-connect after test failed for MCP server %s: %s', name, String(connectErr))
+      }
+      
+      ctx.body = testData
+    } else {
+      // Test failed - clear any cached result
+      clearCachedTestResult(name)
+      ctx.status = response.ok ? response.status : 500
+      ctx.body = testData
+    }
   } catch (err) {
-    // Clear cached result on failure
-    clearCachedTestResult(name)
+    logger.error('Failed to test MCP server %s: %s', name, String(err))
+    ctx.status = 502
     ctx.body = {
       name,
       success: false,
       connected: false,
       tool_count: 0,
       tools: [],
-      error: String(err),
+      error: `Failed to test: ${String(err)}`,
     }
   }
 }
 
-/**
- * Test an HTTP MCP server by connecting and listing tools
- */
-async function testHttpMCPServer(
-  url: string,
-  headers?: Record<string, string>,
-  timeoutSeconds: number = 30
-): Promise<MCPServerTestResult> {
-  return new Promise((resolve, reject) => {
-    // MCP HTTP transport with SSE streaming response
-    const postData = JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2024-11-05",
-        capabilities: {},
-        clientInfo: { name: "hermes-web-ui-test", version: "1.0" }
-      }
-    })
-    
-    const urlObj = new URL(url)
-    const options: http.RequestOptions = {
-      hostname: urlObj.hostname,
-      port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
-      path: urlObj.pathname,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json, text/event-stream',
-        'Content-Length': Buffer.byteLength(postData),
-        ...headers,
-      },
-      timeout: timeoutSeconds * 1000,
-    }
-    
-    const client = urlObj.protocol === 'https:' ? https : http
-    const req = client.request(options, (res: http.IncomingMessage) => {
-      const sessionId = res.headers['mcp-session-id']
-      let sseBuffer = ''
-      let toolsParsed = false
-      const tools: MCPToolInfo[] = []
-      let serverName = ''
-      let serverVersion = ''
-      
-      // Parse SSE data lines
-      const parseSSELine = (line: string): string | null => {
-        if (line.startsWith('data: ')) {
-          return line.slice(6)
-        }
-        return null
-      }
-      
-      // Try to extract tools from response data
-      const extractToolsFromSSE = (data: string): void => {
-        const trimmed = data.trim()
-        
-        // Handle pure JSON response (not SSE format)
-        if (trimmed.startsWith('{')) {
-          try {
-            const parsed = JSON.parse(trimmed)
-            processResponse(parsed)
-          } catch {
-            logger.error(`Failed to parse JSON: ${trimmed.substring(0, 100)}`)
-          }
-          return
-        }
-        
-        // Handle SSE format (data: ...)
-        const lines = trimmed.split('\n')
-        for (const line of lines) {
-          const jsonStr = parseSSELine(line)
-          if (jsonStr) {
-            const lineTrimmed = jsonStr.trim()
-            try {
-              if (lineTrimmed.startsWith('[')) {
-                // Array of responses
-                const parsed = JSON.parse(lineTrimmed)
-                for (const item of parsed) {
-                  processResponse(item)
-                }
-              } else {
-                // Single response
-                const parsed = JSON.parse(lineTrimmed)
-                processResponse(parsed)
-              }
-            } catch {
-              // Try line by line parsing for concatenated JSON
-              const parts = lineTrimmed.split(/\}\n\{/)
-              for (let i = 0; i < parts.length; i++) {
-                let part = parts[i]
-                if (i > 0) part = '{' + part
-                if (i < parts.length - 1) part = part + '}'
-                try {
-                  const parsed = JSON.parse(part)
-                  processResponse(parsed)
-                } catch {
-                  // Not valid JSON, skip
-                }
-              }
-            }
-          }
-        }
-      }
-      
-      const processResponse = (parsed: any): void => {
-        // Get server info from initialize response
-        if (parsed.result?.serverInfo) {
-          serverName = parsed.result.serverInfo.name || ''
-          serverVersion = parsed.result.serverInfo.version || ''
-        }
-        // Get tools from tools/list response
-        if (parsed.result?.tools && Array.isArray(parsed.result.tools)) {
-          toolsParsed = true
-          for (const tool of parsed.result.tools) {
-            tools.push({
-              name: tool.name || '',
-              description: tool.description || '',
-            })
-          }
-        }
-      }
-      
-      res.on('data', (chunk: Buffer) => {
-        sseBuffer += chunk.toString()
-      })
-      
-      res.on('end', () => {
-        // Parse the initialize response first
-        extractToolsFromSSE(sseBuffer)
-        
-        if (sessionId && serverName) {
-          // Send initialized notification (ignore response for notification)
-          const initializedData = JSON.stringify({
-            jsonrpc: "2.0",
-            method: "notifications/initialized",
-            params: {}
-          })
-          
-          const req2 = client.request({
-            ...options,
-            headers: {
-              ...options.headers,
-              'mcp-session-id': sessionId as string,
-              'Content-Length': Buffer.byteLength(initializedData),
-            }
-          }, (res2: http.IncomingMessage) => {
-            let initResponse = ''
-            res2.on('data', (chunk: Buffer) => { initResponse += chunk.toString() })
-            res2.on('end', () => {
-              // Now send tools/list request
-              const toolsRequest = JSON.stringify({
-                jsonrpc: "2.0",
-                id: 2,
-                method: "tools/list",
-                params: {}
-              })
-              
-              const req3 = client.request({
-                ...options,
-                headers: {
-                  ...options.headers,
-                  'mcp-session-id': sessionId as string,
-                  'Content-Length': Buffer.byteLength(toolsRequest),
-                }
-              }, (res3: http.IncomingMessage) => {
-                let toolsResponse = ''
-                res3.on('data', (chunk: Buffer) => { toolsResponse += chunk.toString() })
-                res3.on('end', () => {
-                  extractToolsFromSSE(toolsResponse)
-                  
-                  if (tools.length > 0) {
-                    resolve({
-                      name: serverName || '',
-                      success: true,
-                      connected: true,
-                      tool_count: tools.length,
-                      tools,
-                      message: `Connected to ${serverName} ${serverVersion}, found ${tools.length} tools`,
-                    })
-                  } else {
-                    resolve({
-                      name: serverName || '',
-                      success: true,
-                      connected: true,
-                      tool_count: 0,
-                      tools: [],
-                      message: `Connected to ${serverName} ${serverVersion}, but no tools found in response`,
-                    })
-                  }
-                })
-              })
-              req3.on('error', reject)
-              req3.write(toolsRequest)
-              req3.end()
-            })
-          })
-          req2.on('error', reject)
-          req2.write(initializedData)
-          req2.end()
-        } else {
-          // No session support, just report what we got
-          if (tools.length > 0) {
-            resolve({
-              name: serverName || '',
-              success: true,
-              connected: true,
-              tool_count: tools.length,
-              tools,
-              message: `Found ${tools.length} tools`,
-            })
-          } else if (serverName) {
-            resolve({
-              name: serverName,
-              success: true,
-              connected: true,
-              tool_count: 0,
-              tools: [],
-              message: `Connected to ${serverName} ${serverVersion}`,
-            })
-          } else {
-            reject(new Error('Invalid MCP response or server does not support this protocol'))
-          }
-        }
-      })
-    })
-    
-    req.on('error', reject)
-    req.on('timeout', () => {
-      req.destroy()
-      reject(new Error(`Connection timeout after ${timeoutSeconds}s`))
-    })
-    
-    req.write(postData)
-    req.end()
-  })
-}
-
-/**
- * Extract tools from MCP tools/list response
- */
-function extractToolsFromResult(result: any): MCPToolInfo[] {
-  if (!result) return []
-  
-  // result could be array or single object
-  const toolsArray = Array.isArray(result) ? result : [result]
-  const tools: MCPToolInfo[] = []
-  
-  for (const item of toolsArray) {
-    if (item?.result?.tools && Array.isArray(item.result.tools)) {
-      for (const tool of item.result.tools) {
-        tools.push({
-          name: tool.name || '',
-          description: tool.description || '',
-        })
-      }
-    }
-  }
-  
-  return tools
-}
 
 export async function getTools(ctx: Context): Promise<void> {
   const { name } = ctx.params
+  const timeout = parseFloat(ctx.query.timeout as string) || 30
   
   const servers = await readMCPServers()
   
@@ -689,14 +440,40 @@ export async function getTools(ctx: Context): Promise<void> {
     return
   }
   
-  // Return placeholder - actual tools would come from MCP runtime
-  const response: MCPServerToolsResponse = {
-    name,
-    tools: [],
-    total: 0,
+  const serverConfig = servers[name]
+  
+  // Check if server is disabled
+  if (serverConfig.enabled === false) {
+    ctx.body = {
+      name,
+      tools: [],
+      total: 0,
+      connected: false,
+      message: 'Server is disabled',
+    }
+    return
   }
   
-  ctx.body = response
+  // All servers (HTTP and stdio)统一请求 hermes-agent 获取 tools
+  const upstream = resolveUpstream(ctx)
+  const url = `${upstream}/api/mcp/servers/${encodeURIComponent(name)}/tools`
+  
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    })
+    const data = await response.json()
+    ctx.body = data
+  } catch (err) {
+    ctx.status = 500
+    ctx.body = {
+      name,
+      tools: [],
+      total: 0,
+      error: String(err),
+    }
+  }
 }
 
 export async function reload(ctx: Context): Promise<void> {
@@ -840,6 +617,121 @@ export async function disconnect(ctx: Context): Promise<void> {
       success: false,
       connected: false,
       error: `Failed to disconnect: ${String(err)}`,
+    }
+  }
+}
+
+/**
+ * Start (connect) an MCP server
+ */
+export async function startServer(ctx: Context): Promise<void> {
+  const { name } = ctx.params
+  
+  const servers = await readMCPServers()
+  
+  if (!servers[name]) {
+    ctx.status = 404
+    ctx.body = { detail: `MCP server '${name}' not found` }
+    return
+  }
+  
+  // Update config to enable server
+  servers[name].enabled = true
+  await writeMCPServers(servers)
+  
+  // Clear any cached failure state
+  clearCachedTestResult(name)
+  
+  // Connect to the server
+  const upstream = resolveUpstream(ctx)
+  const url = `${upstream}/api/mcp/servers/${encodeURIComponent(name)}/connect`
+  
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' },
+    })
+    const data = await response.json()
+    
+    if (response.ok && data.success) {
+      ctx.body = {
+        success: true,
+        message: `MCP server '${name}' started`,
+        name,
+      }
+    } else {
+      // Still return success for enabling, even if connect failed
+      ctx.body = {
+        success: true,
+        message: `MCP server '${name}' enabled but connection failed`,
+        name,
+        connected: false,
+        ...data,
+      }
+    }
+  } catch (err) {
+    logger.error('Failed to start MCP server %s: %s', name, String(err))
+    ctx.body = {
+      success: true,
+      message: `MCP server '${name}' enabled but connection pending`,
+      name,
+      connected: false,
+    }
+  }
+}
+
+/**
+ * Stop (disconnect) an MCP server
+ */
+export async function stopServer(ctx: Context): Promise<void> {
+  const { name } = ctx.params
+  
+  const servers = await readMCPServers()
+  
+  if (!servers[name]) {
+    ctx.status = 404
+    ctx.body = { detail: `MCP server '${name}' not found` }
+    return
+  }
+  
+  // Update config to disable server
+  servers[name].enabled = false
+  await writeMCPServers(servers)
+  
+  // Clear cached state
+  clearCachedTestResult(name)
+  
+  // Disconnect from the server
+  const upstream = resolveUpstream(ctx)
+  const url = `${upstream}/api/mcp/servers/${encodeURIComponent(name)}/disconnect`
+  
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' },
+    })
+    const data = await response.json()
+    
+    if (response.ok) {
+      ctx.body = {
+        success: true,
+        message: `MCP server '${name}' stopped`,
+        name,
+      }
+    } else {
+      ctx.body = {
+        success: true,
+        message: `MCP server '${name}' disabled but disconnect failed`,
+        name,
+        ...data,
+      }
+    }
+  } catch (err) {
+    logger.error('Failed to stop MCP server %s: %s', name, String(err))
+    ctx.body = {
+      success: true,
+      message: `MCP server '${name}' disabled`,
+      name,
     }
   }
 }
