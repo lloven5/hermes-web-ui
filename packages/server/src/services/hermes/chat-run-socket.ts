@@ -1029,16 +1029,15 @@ export class ChatRunSocket {
                   if (last?.role === 'assistant' && last.finish_reason == null) {
                     last.finish_reason = 'tool_calls'
                   }
-                  // 支持新的 input 字段（JSON 对象）或 legacy 的 arguments 字段
+                  // 尝试多种字段名：input、arguments、parameters、tool_input、args
+                  const rawInput = parsed.input ?? parsed.arguments ?? parsed.parameters ?? parsed.tool_input ?? parsed.args
                   let toolInput: string = ''
-                  if (parsed.input != null) {
-                    toolInput = typeof parsed.input === 'string'
-                      ? parsed.input
-                      : JSON.stringify(parsed.input)
-                  } else if (parsed.arguments != null) {
-                    toolInput = typeof parsed.arguments === 'string'
-                      ? parsed.arguments
-                      : JSON.stringify(parsed.arguments)
+                  if (rawInput != null) {
+                    toolInput = typeof rawInput === 'string' ? rawInput : JSON.stringify(rawInput)
+                  }
+                  // 将解析到的 toolInput 注入回 parsed.input，确保客户端收到统一字段
+                  if (toolInput && parsed.input == null) {
+                    parsed.input = toolInput
                   }
                   msgs.push({
                     id: msgs.length + 1,

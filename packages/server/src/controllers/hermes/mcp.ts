@@ -6,6 +6,7 @@ import { getActiveConfigPath } from '../../services/hermes/hermes-profile'
 import { logger } from '../../services/logger'
 import { resolveUpstream } from '../../routes/hermes/proxy-handler'
 import { proxy } from '../../routes/hermes/proxy-handler'
+import { config } from '../../config'
 
 // MCP Server config from config.yaml
 export interface MCPServerConfig {
@@ -195,8 +196,76 @@ function configToResponse(name: string, config: MCPServerConfig): MCPServerWithS
 
 // ─── API Controllers ────────────────────────────────────────────────────────
 
+/**
+ * Probe a single server's status and tools from upstream and cache the result.
+ * Returns the tool count if connected, 0 otherwise.
+ */
+async function probeServer(name: string, upstream: string): Promise<number> {
+  const timeout = 30
+  try {
+    // First check status
+    const statusUrl = `${upstream}/api/mcp/servers/${encodeURIComponent(name)}/status?timeout=${timeout}`
+    const statusResponse = await fetch(statusUrl, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    })
+    
+    if (statusResponse.ok) {
+      const statusData = await statusResponse.json()
+      
+      // If connected, also get tools for accurate count
+      if (statusData.connected) {
+        const toolsUrl = `${upstream}/api/mcp/servers/${encodeURIComponent(name)}/tools?timeout=${timeout}`
+        try {
+          const toolsResponse = await fetch(toolsUrl, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' },
+          })
+          if (toolsResponse.ok) {
+            const toolsData = await toolsResponse.json()
+            const toolCount = toolsData.tools?.length ?? toolsData.total ?? statusData.tool_count ?? 0
+            cacheTestResult(name, true, toolCount)
+            return toolCount
+          }
+        } catch {
+          // Fall back to status response tool_count
+          cacheTestResult(name, true, statusData.tool_count ?? 0)
+          return statusData.tool_count ?? 0
+        }
+      } else {
+        clearCachedTestResult(name)
+      }
+    }
+  } catch (err) {
+    // Ignore individual server probe failures
+    logger.debug('Probe failed for MCP server %s: %s', name, String(err))
+  }
+  return 0
+}
+
+/**
+ * Probe all servers concurrently from upstream and cache their status.
+ */
+async function probeAllServers(servers: Record<string, MCPServerConfig>): Promise<void> {
+  const upstream = config.upstream.replace(/\/$/, '')
+  const enabledServers = Object.entries(servers)
+    .filter(([, cfg]) => cfg.enabled !== false)
+    .map(([name]) => name)
+  
+  if (enabledServers.length === 0) return
+  
+  // Probe all servers concurrently with a timeout
+  await Promise.all(
+    enabledServers.map(name => probeServer(name, upstream))
+  )
+}
+
 export async function list(ctx: Context): Promise<void> {
   const servers = await readMCPServers()
+  
+  // Auto-probe all servers' status from upstream in parallel
+  await probeAllServers(servers)
+  
   const response: MCPServerListResponse = {
     servers: Object.entries(servers).map(([name, config]) => configToResponse(name, config)),
     total: Object.keys(servers).length,
