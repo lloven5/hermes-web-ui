@@ -50,7 +50,7 @@ useKeyboard()
     <NMessageProvider>
       <NDialogProvider>
         <NNotificationProvider>
-          <div class="app-layout" :class="{ 'no-sidebar': isLoginPage }">
+          <div class="app-layout" :class="{ 'no-sidebar': isLoginPage, 'sidebar-collapsed': appStore.sidebarCollapsed }">
             <div v-if="nodeVersionLow" class="node-warning-bar">
               {{ t('sidebar.nodeVersionWarning', { version: appStore.nodeVersion }) }}
             </div>
@@ -87,11 +87,19 @@ useKeyboard()
 
 .app-main {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   background-color: $bg-primary;
+  margin-left: $sidebar-width;
+  transition: margin-left $transition-fast;
+
+  .sidebar-collapsed & {
+    margin-left: $sidebar-collapsed-width;
+  }
 
   .no-sidebar & {
     height: calc(100 * var(--vh));
+    margin-left: 0;
   }
 }
 
@@ -109,5 +117,12 @@ useKeyboard()
   border-bottom: 1px solid #fde68a;
   text-align: center;
   line-height: 1.4;
+}
+
+@media (max-width: $breakpoint-mobile) {
+  .app-main,
+  .app-layout.sidebar-collapsed .app-main {
+    margin-left: 0;
+  }
 }
 </style>

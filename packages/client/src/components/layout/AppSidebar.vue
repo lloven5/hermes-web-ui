@@ -2,7 +2,7 @@
 import { computed, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import { NButton, NModal, useMessage } from "naive-ui";
+import { NModal, useMessage } from "naive-ui";
 import { useAppStore } from "@/stores/hermes/app";
 import ModelSelector from "./ModelSelector.vue";
 import ProfileSelector from "./ProfileSelector.vue";
@@ -32,38 +32,27 @@ function handleNav(key: string) {
   router.push({ name: key });
 }
 
-async function handleUpdate() {
-  const ok = await appStore.doUpdate();
-  if (ok) {
-    message.success(t('sidebar.updateSuccess'), { duration: 5000 });
-  } else {
-    message.error(t('sidebar.updateFailed'));
-  }
-}
-
-
 // Changelog
 const showChangelog = ref(false);
-
-function openChangelog() {
-  showChangelog.value = true;
-}
 </script>
 
 <template>
   <aside class="sidebar" :class="{ open: appStore.sidebarOpen, collapsed: appStore.sidebarCollapsed }">
-    <div class="sidebar-logo" @click="router.push('/hermes/chat')">
-      <img :src="logoPath" alt="Hermes" class="logo-img" />
-      <span class="logo-text">SciClaw</span>
-      <!-- <video class="logo-dance" :src="isDark ? danceVideoDark : danceVideoLight" autoplay loop muted playsinline /> -->
-    </div>
+    <div class="sidebar-brand-row">
+      <div class="sidebar-logo" @click="router.push('/hermes/chat')">
+        <img :src="logoPath" alt="SciClaw" class="logo-img" />
+        <span class="sidebar-brand-copy">
+          <span class="logo-text">SciClaw</span>
+        </span>
+      </div>
 
-    <button class="collapse-btn" @click="appStore.toggleSidebarCollapsed()" :title="appStore.sidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline v-if="appStore.sidebarCollapsed" points="9 18 15 12 9 6" />
-        <polyline v-else points="15 18 9 12 15 6" />
-      </svg>
-    </button>
+      <button class="collapse-btn" @click="appStore.toggleSidebarCollapsed()" :title="appStore.sidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline v-if="appStore.sidebarCollapsed" points="9 18 15 12 9 6" />
+          <polyline v-else points="15 18 9 12 15 6" />
+        </svg>
+      </button>
+    </div>
 
     <nav class="sidebar-nav">
       <!-- Conversation -->
@@ -235,27 +224,29 @@ function openChangelog() {
       </div>
     </nav>
 
-    <ProfileSelector />
-    <ModelSelector />
+    <div class="sidebar-bottom">
+      <ProfileSelector />
+      <ModelSelector />
 
-    <div class="sidebar-footer">
-      <div class="status-row">
-        <div
-          class="status-indicator"
-          :class="{
-            connected: appStore.connected,
-            disconnected: !appStore.connected,
-          }"
-        >
-          <span class="status-dot"></span>
-          <span class="status-text">{{
-            appStore.connected
-              ? t("sidebar.connected")
-              : t("sidebar.disconnected")
-          }}</span>
+      <div class="sidebar-footer">
+        <div class="status-row">
+          <div
+            class="status-indicator"
+            :class="{
+              connected: appStore.connected,
+              disconnected: !appStore.connected,
+            }"
+          >
+            <span class="status-dot"></span>
+            <span class="status-text">{{
+              appStore.connected
+                ? t("sidebar.connected")
+                : t("sidebar.disconnected")
+            }}</span>
+          </div>
+          <LanguageSwitch />
+          <ThemeSwitch />
         </div>
-        <LanguageSwitch />
-        <ThemeSwitch />
       </div>
     </div>
 
@@ -280,81 +271,109 @@ function openChangelog() {
 @use "@/styles/variables" as *;
 
 .sidebar {
-  position: relative;
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 20;
   width: $sidebar-width;
-  height: calc(100 * var(--vh));
-  background-color: $bg-sidebar;
-  border-right: 1px solid $border-color;
+  height: 100vh;
+  background: $shell-sidebar-surface;
+  border-right: 1px solid $shell-border;
   display: flex;
   flex-direction: column;
-  padding: 0 12px 20px;
+  gap: 18px;
+  padding: 14px 8px 16px;
   flex-shrink: 0;
-  transition: width $transition-normal;
+  overflow: hidden;
+  isolation: isolate;
+  transition:
+    width 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    padding 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    transform $transition-normal;
+}
+
+.sidebar-brand-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.sidebar-logo {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding-left: 8px;
+  color: $shell-text-main;
+  cursor: pointer;
+  min-width: 0;
+
+  .sidebar-brand-copy {
+    min-width: 0;
+  }
+
+  .logo-text {
+    display: block;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.2;
+  }
 }
 
 .logo-img {
   width: 28px;
   height: 28px;
-  border-radius: 0;
+  object-fit: contain;
   flex-shrink: 0;
 }
 
-.sidebar-logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 20px 12px;
-  margin: 0 -12px;
-  color: $text-primary;
-  cursor: pointer;
-  background-color: $bg-card;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-
-  .dark & {
-    background-color: #393939;
-  }
-  position: relative;
-  overflow: hidden;
-
-  .logo-text {
-    font-size: 18px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-  }
-
-  .logo-dance {
-    position: absolute;
-    right: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    height: 100px;
-    border-radius: $radius-md;
-    object-fit: contain;
-    flex-shrink: 0;
-    width: auto;
-    pointer-events: none;
-  }
-}
-
 .sidebar-nav {
-  flex: 1;
-  display: flex;
-  padding-top: 12px;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 12px;
+  flex: 1 1 auto;
   overflow-y: auto;
   min-height: 0;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   scrollbar-width: none;
+  padding-right: 4px;
 
   &::-webkit-scrollbar {
+    width: 0;
+    height: 0;
     display: none;
   }
 }
 
-.nav-group {
+.sidebar-bottom {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  margin-top: auto;
+  flex-shrink: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar-bottom > * {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 0.18s ease,
+    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.sidebar:not(.collapsed) .sidebar-bottom > * {
+  transition-delay: 0.06s;
+}
+
+.nav-group {
+  display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 8px;
 
   &.nav-group-bottom {
     margin-top: auto;
@@ -366,71 +385,92 @@ function openChangelog() {
 .nav-group-label {
   font-size: 10px;
   font-weight: 600;
-  color: $text-muted;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  padding: 8px 12px 4px;
+  color: $shell-text-faint;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 0 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
   user-select: none;
-  border-radius: $radius-sm;
   transition: color $transition-fast;
 
   &:hover {
-    color: $text-secondary;
-  }
-
-  .nav-group:first-child & {
-    padding-top: 0;
+    color: $shell-text-subtle;
   }
 }
 
 .nav-group-arrow {
-  transition: transform $transition-fast;
-  flex-shrink: 0;
-
-  &.collapsed {
-    transform: rotate(-90deg);
-  }
+  display: none;
 }
 
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px;
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 8px;
   border: none;
   background: none;
-  color: $text-secondary;
-  font-size: 14px;
-  border-radius: $radius-sm;
+  color: $shell-text-subtle;
+  font-size: 13px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all $transition-fast;
+  transition: background-color $transition-fast, color $transition-fast, transform $transition-fast;
   width: 100%;
   text-align: left;
 
   &:hover {
-    background-color: rgba(var(--accent-primary-rgb), 0.06);
-    color: $text-primary;
+    transform: translateX(2px);
+    background: $shell-hover-bg;
+    color: $shell-text-main;
   }
 
   &.active {
-    background-color: rgba(var(--accent-primary-rgb), 0.12);
-    color: $accent-primary;
+    background: linear-gradient(135deg, $shell-primary-600, $shell-primary-500);
+    color: #fff;
+  }
+
+  svg {
+    display: inline-grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    padding: 3px;
+    box-sizing: content-box;
+    border-radius: 4px;
+    background: $shell-icon-bg;
+    color: $shell-primary-600;
+    flex: 0 0 auto;
+  }
+
+  &.active svg {
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
   }
 
   .beta-tag {
     font-size: 10px;
-    color: $text-muted;
+    color: inherit;
     margin-left: 2px;
+    opacity: 0.72;
+  }
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 
 .sidebar-footer {
-  padding-top: 8px;
-  border-top: 1px solid $border-color;
+  overflow: hidden;
+  padding-top: 10px;
+  border-top: 1px solid $shell-border;
 }
 
 .logout-item {
@@ -451,7 +491,7 @@ function openChangelog() {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 0 8px;
 }
 
 .status-indicator {
@@ -477,7 +517,7 @@ function openChangelog() {
   }
 
   .status-text {
-    color: $text-secondary;
+    color: $shell-text-subtle;
   }
 }
 
@@ -572,57 +612,146 @@ function openChangelog() {
 
 .sidebar.collapsed {
   width: $sidebar-collapsed-width;
-  padding: 0 8px 12px;
+  padding: 14px 10px 16px;
   overflow: hidden;
 
-  .sidebar-logo {
-    padding: 12px 4px 8px;
-    margin: 0 -8px;
-    justify-content: center;
-    gap: 0;
-
-    .logo-text {
-      display: none;
-    }
+  .sidebar-bottom > * {
+    transform: translateY(8px);
+    transition-delay: 0s;
   }
 
-  .collapse-btn {
-    display: flex;
-    margin: 0 auto 8px;
+  .sidebar-nav {
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-gutter: auto;
+    padding-right: 0;
+  }
+
+  .sidebar-brand-row {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar-logo {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding-left: 0;
+  }
+
+  .sidebar-brand-copy {
+    display: none;
   }
 
   .nav-group-label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 8px 4px 4px;
+    text-align: center;
+
+    span {
+      display: block;
+      width: 100%;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: clip;
+      line-height: 1;
+    }
+  }
+
+  .nav-group-arrow {
     display: none;
   }
 
   .nav-item {
     justify-content: center;
-    padding: 10px 4px;
+    width: 40px;
+    min-height: 38px;
+    margin-inline: auto;
+    padding-inline: 0;
     gap: 0;
+    transform: none;
+    border-radius: 8px;
 
     span {
       display: none;
     }
 
     svg {
+      width: 16px;
+      height: 16px;
+      padding: 2px;
       flex-shrink: 0;
     }
   }
 
-  // Keep group children visible — user can still see icons
   .nav-group > div {
-    display: flex !important;
-    flex-direction: column;
-    gap: 2px;
+    display: grid !important;
+    gap: 4px;
   }
 
-  // Hide selectors and footer text, keep theme switch
   :deep(.profile-selector),
   :deep(.model-selector) {
     display: none;
   }
 
+  .collapse-btn {
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+  }
+
   .sidebar-footer {
+    overflow: hidden;
+    width: 100%;
+    opacity: 1;
+    padding-bottom: 8px;
+
+    :deep(.input-sm) {
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    :deep(.n-base-selection) {
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      padding: 0;
+      justify-content: center;
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+
+    :deep(.n-base-selection-label) {
+      display: flex;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      min-width: 0;
+      padding-right: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    :deep(.n-base-selection-input) {
+      justify-content: center;
+      min-width: 0;
+    }
+
+    :deep(.n-base-selection-placeholder),
+    :deep(.n-base-selection__border),
+    :deep(.n-base-selection__state-border) {
+      left: 0;
+      right: 0;
+    }
+
+    .status-indicator {
+      display: none;
+    }
+
     .logout-item span {
       display: none;
     }
@@ -637,8 +766,22 @@ function openChangelog() {
     }
 
     .status-row {
-      justify-content: center;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 0;
     }
+
+    :deep(.theme-switch) {
+      display: none;
+    }
+  }
+
+  .sidebar-bottom {
+    gap: 8px;
+    overflow: hidden;
+    width: 100%;
   }
 }
 
@@ -648,37 +791,25 @@ function openChangelog() {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: none;
-  color: $text-muted;
-  border-radius: $radius-sm;
+  min-width: 40px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid $shell-border;
+  background: $shell-toggle-bg;
+  color: $shell-text-subtle;
+  border-radius: 999px;
   cursor: pointer;
   flex-shrink: 0;
-  margin-left: auto;
-  margin-right: 0;
   transition: all $transition-fast;
 
   &:hover {
-    color: $text-primary;
-    background-color: rgba(var(--accent-primary-rgb), 0.08);
+    color: $shell-text-main;
+    border-color: rgba(45, 79, 151, 0.2);
+    background: rgba(255, 255, 255, 0.98);
   }
-}
-
-// In expanded mode, overlap the top-right of the logo area
-.sidebar:not(.collapsed) .collapse-btn {
-  position: absolute;
-  top: 18px;
-  right: 16px;
-  z-index: 5;
 }
 
 @media (max-width: $breakpoint-mobile) {
-  .logo-dance {
-    display: none;
-  }
-
   .status-row {
     flex-direction: column;
     align-items: flex-start;
@@ -686,20 +817,11 @@ function openChangelog() {
   }
 
   .sidebar {
-    position: fixed;
-    left: 0;
-    top: 0;
     z-index: 1000;
     transform: translateX(-100%);
-    transition: transform $transition-normal;
 
     &.open {
       transform: translateX(0);
-    }
-
-    // Override global utility — sidebar is always 240px wide
-    .input-sm {
-      width: 90px;
     }
   }
 }
