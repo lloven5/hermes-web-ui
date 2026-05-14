@@ -142,6 +142,34 @@ fileRoutes.delete('/api/hermes/files/delete', async (ctx) => {
   }
 })
 
+// POST /api/hermes/files/delete  body: { path, recursive? }
+// (POST fallback for environments where DELETE body is not supported)
+fileRoutes.post('/api/hermes/files/delete', async (ctx) => {
+  const { path: relativePath, recursive } = ctx.request.body as { path?: string; recursive?: boolean }
+  if (!relativePath) {
+    ctx.status = 400
+    ctx.body = { error: 'Missing path parameter', code: 'missing_path' }
+    return
+  }
+  if (isSensitivePath(relativePath)) {
+    ctx.status = 403
+    ctx.body = { error: 'Cannot delete sensitive file', code: 'permission_denied' }
+    return
+  }
+  try {
+    const absPath = resolveHermesPath(relativePath)
+    const provider = await createFileProvider()
+    if (recursive) {
+      await provider.deleteDir(absPath)
+    } else {
+      await provider.deleteFile(absPath)
+    }
+    ctx.body = { ok: true }
+  } catch (err: any) {
+    handleError(ctx, err)
+  }
+})
+
 // POST /api/hermes/files/rename  body: { oldPath, newPath }
 fileRoutes.post('/api/hermes/files/rename', async (ctx) => {
   const { oldPath, newPath } = ctx.request.body as { oldPath?: string; newPath?: string }

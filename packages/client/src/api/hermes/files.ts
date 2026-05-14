@@ -41,7 +41,7 @@ export async function writeFile(path: string, content: string): Promise<void> {
 
 export async function deleteFile(path: string, recursive: boolean = false): Promise<void> {
   await request<{ ok: boolean }>('/api/hermes/files/delete', {
-    method: 'DELETE',
+    method: 'POST',  // POST instead of DELETE to work around body parser issue
     body: JSON.stringify({ path, recursive }),
   })
 }
