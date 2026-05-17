@@ -1,26 +1,43 @@
+# Hermes Web UI + Agent
+#
+# Permissions (before first start or after editing hermes_data with sudo on host):
+#   sudo chown -R ${HERMES_UID:-10000}:${HERMES_GID:-10000} ./hermes_data
+#
+# Match container user to your Linux account (host edits stay consistent):
+#   cp .env.example .env   # edit HERMES_UID/GID if needed
+#   docker compose up -d
+#
+# Users:
+#   hermes-agent  → user: "0:0" (required: entrypoint chown + gosu), business runs as hermes
+#   hermes-webui  → user: HERMES_UID:HERMES_GID (default 10000), never set to root
+
 services:
   hermes-agent:
     image: ${HERMES_AGENT_IMAGE:-hermes-agent:v2}
     container_name: ${HERMES_AGENT_CONTAINER_NAME:-hermes-agent}
-    user: root
+    user: "0:0"
     volumes:
       - ./hermes_data:/opt/data
-      - hermes-agent-src:/opt/hermes
-    # 默认无 CMD 时入口为 `hermes` → 交互 chat，不会监听 API；Web UI 依赖 8642 的 /v1/runs
     command: ["gateway", "run"]
     env_file:
       - ./hermes_data/.env
     environment:
       - HERMES_HOME=/opt/data
       - HOME=/opt/data
-      # Default: Enable dashboard by default
+      - HERMES_UID=${HERMES_UID:-10000}
+      - HERMES_GID=${HERMES_GID:-10000}
       - HERMES_DASHBOARD=${HERMES_DASHBOARD:-1}
       - GATEWAY_ALLOW_ALL_USERS=${GATEWAY_ALLOW_ALL_USERS:-true}
       - API_SERVER_ENABLED=true
       - API_SERVER_HOST=0.0.0.0
       - API_SERVER_PORT=8642
-      # 与 webui 共用；生产务必改 API_SERVER_KEY 或设强随机值
       - API_SERVER_KEY=${API_SERVER_KEY:-hermes-compose-dev-only-replace-in-production}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8642/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
     stdin_open: true
     tty: true
     restart: unless-stopped
@@ -37,15 +54,17 @@ services:
         BASE_IMAGE: ${HERMES_AGENT_IMAGE:-hermes-agent:v2}
     image: ${WEBUI_IMAGE:-hermes-web:v2}
     container_name: ${WEBUI_CONTAINER_NAME:-hermes-webui}
-    user: root
+    user: "${HERMES_UID:-10000}:${HERMES_GID:-10000}"
     entrypoint: ["node", "dist/server/index.js"]
     depends_on:
-      - hermes-agent
+      hermes-agent:
+        condition: service_healthy
+    env_file:
+      - ./hermes_data/.env
     ports:
       - "${PORT:-3003}:${PORT:-3003}"
     volumes:
       - ./hermes_data:/opt/data
-      - hermes-agent-src:/opt/hermes
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -61,7 +80,3 @@ services:
       - HERMES_GATEWAY_RUN=${HERMES_GATEWAY_RUN:-false}
       - PATH=/opt/hermes/.venv/bin:/opt/data/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     restart: unless-stopped
-
-
-volumes:
-  hermes-agent-src:
