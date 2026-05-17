@@ -63,3 +63,4 @@ temp/
 .AppleDouble
 .LSOverride
 Thumbs.db
+*.db

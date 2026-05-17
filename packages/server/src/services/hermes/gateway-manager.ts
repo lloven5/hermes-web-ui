@@ -46,7 +46,8 @@ const execFileAsync = promisify(execFile)
 // 常量 & 环境检测
 // ============================
 
-const HERMES_BASE = resolve(homedir(), '.hermes')
+/** 与 hermes-profile.ts 一致：Docker 下 HERMES_HOME=/opt/data 时读写同一份 config / gateway.pid */
+const HERMES_BASE = process.env.HERMES_HOME || resolve(homedir(), '.hermes')
 const HERMES_BIN = process.env.HERMES_BIN?.trim() || 'hermes'
 
 /**
@@ -366,24 +367,30 @@ export class GatewayManager {
   /** 获取指定 profile 的网关 URL（代理路由使用） */
   getUpstream(profileName?: string): string {
     const name = profileName || this.activeProfile
+    // 显式 UPSTREAM（如 compose）必须优先于本地已登记网关：否则 startAll 在 webui 容器内起的 gateway
+    // 会写入 gw.url（127.0.0.1:端口），对话仍走本容器而非 hermes-agent。
+    const envUpstream = process.env.UPSTREAM?.trim()
+    if (envUpstream) return envUpstream.replace(/\/$/, '')
     const gw = this.gateways.get(name)
     if (gw?.url) return gw.url
     const { port, host } = this.readProfilePort(name)
     return buildHttpUrl(host, port)
   }
 
-  /** 读取 profile 的 API_SERVER_KEY（从 .env 文件） */
+  /** 读取 profile 的 API_SERVER_KEY（优先 .env，否则 process.env.API_SERVER_KEY，供 compose 注入） */
   getApiKey(profileName?: string): string | null {
     const name = profileName || this.activeProfile
     try {
       const envPath = join(this.profileDir(name), '.env')
-      if (!existsSync(envPath)) return null
-      const content = readFileSync(envPath, 'utf-8')
-      const match = content.match(/^API_SERVER_KEY\s*=\s*"?([^"\n]+)"?/m)
-      return match?.[1]?.trim() || null
-    } catch {
-      return null
-    }
+      if (existsSync(envPath)) {
+        const content = readFileSync(envPath, 'utf-8')
+        const match = content.match(/^API_SERVER_KEY\s*=\s*"?([^"\n]+)"?/m)
+        const fromFile = match?.[1]?.trim()
+        if (fromFile) return fromFile
+      }
+    } catch { /* fall through */ }
+    const fromEnv = process.env.API_SERVER_KEY?.trim()
+    return fromEnv || null
   }
 
   getActiveProfile(): string {

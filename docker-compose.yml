@@ -1,43 +1,64 @@
 services:
   hermes-agent:
-    image: ${HERMES_AGENT_IMAGE:-nousresearch/hermes-agent:latest}
+    image: ${HERMES_AGENT_IMAGE:-hermes-agent:v2}
     container_name: ${HERMES_AGENT_CONTAINER_NAME:-hermes-agent}
     volumes:
-      - ${HERMES_DATA_DIR:-./hermes_data}:/home/agent/.hermes
+      - ./hermes_data:/opt/data
       - hermes-agent-src:/opt/hermes
+    # 默认无 CMD 时入口为 `hermes` → 交互 chat，不会监听 API；Web UI 依赖 8642 的 /v1/runs
+    command: ["gateway", "run"]
     environment:
-      - HERMES_HOME=/home/agent/.hermes
+      - HERMES_HOME=/opt/data
+      - HOME=/opt/data
+      # Default: Enable dashboard by default
+      - HERMES_DASHBOARD=${HERMES_DASHBOARD:-1}
+      - GATEWAY_ALLOW_ALL_USERS=${GATEWAY_ALLOW_ALL_USERS:-true}
+      - API_SERVER_ENABLED=true
+      - API_SERVER_HOST=0.0.0.0
+      - API_SERVER_PORT=8642
+      # 与 webui 共用；生产务必改 API_SERVER_KEY 或设强随机值
+      - API_SERVER_KEY=${API_SERVER_KEY:-hermes-compose-dev-only-replace-in-production}
     stdin_open: true
     tty: true
     restart: unless-stopped
     ports:
-      - "8642-8670:8642-8670"
+      - "${API_PORT:-8642}:8642"
+      - "${DASHBOARD_PORT:-9119}:9119"
+      - "8643-8670:8643-8670"
 
   hermes-webui:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: ${HERMES_AGENT_IMAGE:-nousresearch/hermes-agent:latest}
-    image: ${WEBUI_IMAGE:-hermes-web-ui-local:latest}
+        BASE_IMAGE: ${HERMES_AGENT_IMAGE:-hermes-agent:v2}
+    image: ${WEBUI_IMAGE:-hermes-web:v2}
     container_name: ${WEBUI_CONTAINER_NAME:-hermes-webui}
+    user: "10000:10000"
     entrypoint: ["node", "dist/server/index.js"]
     depends_on:
       - hermes-agent
     ports:
-      - "${PORT:-6060}:${PORT:-6060}"
+      - "${PORT:-3003}:${PORT:-3003}"
     volumes:
-      - ${HERMES_DATA_DIR:-./hermes_data}:/home/agent/.hermes
-      - ${HERMES_DATA_DIR:-./hermes_data}/hermes-web-ui:/home/agent/.hermes-web-ui
+      - ./hermes_data:/opt/data
       - hermes-agent-src:/opt/hermes
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      - PORT=${PORT:-6060}
+      - BIND_HOST=0.0.0.0
+      - PORT=${PORT:-3003}
       - UPSTREAM=${UPSTREAM:-http://hermes-agent:8642}
-      - HERMES_HOME=/home/agent/.hermes
+      - API_SERVER_KEY=${API_SERVER_KEY:-hermes-compose-dev-only-replace-in-production}
+      - HERMES_HOME=/opt/data
+      - HOME=/opt/data
       - HERMES_BIN=${HERMES_BIN:-/opt/hermes/.venv/bin/hermes}
-      - AUTH_DISABLED=${AUTH_DISABLED:-false}
+      - HERMES_DATA_DIR=/opt/data
+      - AUTH_DISABLED=${AUTH_DISABLED:-true}
+      - HERMES_GATEWAY_RUN=${HERMES_GATEWAY_RUN:-false}
       - PATH=/opt/hermes/.venv/bin:/opt/data/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     restart: unless-stopped
+
 
 volumes:
   hermes-agent-src:

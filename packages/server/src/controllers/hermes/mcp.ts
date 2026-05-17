@@ -7,6 +7,8 @@ import { logger } from '../../services/logger'
 import { resolveUpstream } from '../../routes/hermes/proxy-handler'
 import { proxy } from '../../routes/hermes/proxy-handler'
 import { config } from '../../config'
+import { getGatewayManagerInstance } from '../../services/gateway-bootstrap'
+import { getActiveProfileName } from '../../services/hermes/hermes-profile'
 
 // MCP Server config from config.yaml
 export interface MCPServerConfig {
@@ -196,18 +198,39 @@ function configToResponse(name: string, config: MCPServerConfig): MCPServerWithS
 
 // ─── API Controllers ────────────────────────────────────────────────────────
 
+function profileFromCtx(ctx: Context): string {
+  const requested = ctx.get('x-hermes-profile') || (ctx.query.profile as string)
+  return (requested && requested.trim()) || getActiveProfileName()
+}
+
+/** Accept + Bearer when API_SERVER_KEY / profile .env 已配置（与 proxy-handler 一致） */
+function upstreamJsonHeaders(profile?: string): Record<string, string> {
+  const h: Record<string, string> = { Accept: 'application/json' }
+  const mgr = getGatewayManagerInstance()
+  const key = mgr?.getApiKey(profile || getActiveProfileName())
+  if (key) h.Authorization = `Bearer ${key}`
+  return h
+}
+
+function defaultUpstreamBase(): string {
+  const mgr = getGatewayManagerInstance()
+  const u = mgr?.getUpstream() ?? config.upstream
+  return u.replace(/\/$/, '')
+}
+
 /**
  * Probe a single server's status and tools from upstream and cache the result.
  * Returns the tool count if connected, 0 otherwise.
  */
-async function probeServer(name: string, upstream: string): Promise<number> {
+async function probeServer(name: string, upstream: string, profile?: string): Promise<number> {
   const timeout = 30
+  const activeProfile = profile || getActiveProfileName()
   try {
     // First check status
     const statusUrl = `${upstream}/api/mcp/servers/${encodeURIComponent(name)}/status?timeout=${timeout}`
     const statusResponse = await fetch(statusUrl, {
       method: 'GET',
-      headers: { 'Accept': 'application/json' },
+      headers: upstreamJsonHeaders(activeProfile),
     })
     
     if (statusResponse.ok) {
@@ -219,7 +242,7 @@ async function probeServer(name: string, upstream: string): Promise<number> {
         try {
           const toolsResponse = await fetch(toolsUrl, {
             method: 'GET',
-            headers: { 'Accept': 'application/json' },
+            headers: upstreamJsonHeaders(activeProfile),
           })
           if (toolsResponse.ok) {
             const toolsData = await toolsResponse.json()
@@ -246,8 +269,9 @@ async function probeServer(name: string, upstream: string): Promise<number> {
 /**
  * Probe all servers concurrently from upstream and cache their status.
  */
-async function probeAllServers(servers: Record<string, MCPServerConfig>): Promise<void> {
-  const upstream = config.upstream.replace(/\/$/, '')
+async function probeAllServers(servers: Record<string, MCPServerConfig>, profile?: string): Promise<void> {
+  const upstream = defaultUpstreamBase()
+  const activeProfile = profile || getActiveProfileName()
   const enabledServers = Object.entries(servers)
     .filter(([, cfg]) => cfg.enabled !== false)
     .map(([name]) => name)
@@ -256,15 +280,16 @@ async function probeAllServers(servers: Record<string, MCPServerConfig>): Promis
   
   // Probe all servers concurrently with a timeout
   await Promise.all(
-    enabledServers.map(name => probeServer(name, upstream))
+    enabledServers.map(name => probeServer(name, upstream, activeProfile))
   )
 }
 
 export async function list(ctx: Context): Promise<void> {
   const servers = await readMCPServers()
+  const profile = profileFromCtx(ctx)
   
   // Auto-probe all servers' status from upstream in parallel
-  await probeAllServers(servers)
+  await probeAllServers(servers, profile)
   
   const response: MCPServerListResponse = {
     servers: Object.entries(servers).map(([name, config]) => configToResponse(name, config)),
@@ -345,7 +370,7 @@ export async function create(ctx: Context): Promise<void> {
         const testUrl = `${upstream}/api/mcp/servers/${encodeURIComponent(name)}/test?timeout=${timeout}`
         const response = await fetch(testUrl, {
           method: 'POST',
-          headers: { 'Accept': 'application/json' },
+          headers: upstreamJsonHeaders(profileFromCtx(ctx)),
         })
         const data = await response.json()
         if (response.ok && data.success && data.connected) {
@@ -355,7 +380,7 @@ export async function create(ctx: Context): Promise<void> {
           try {
             await fetch(connectUrl, {
               method: 'POST',
-              headers: { 'Accept': 'application/json' },
+              headers: upstreamJsonHeaders(profileFromCtx(ctx)),
             })
           } catch (connectErr) {
             logger.warn('Auto-connect after create test failed for MCP server %s: %s', name, String(connectErr))
@@ -447,9 +472,7 @@ export async function test(ctx: Context): Promise<void> {
   try {
     const response = await fetch(testUrl, {
       method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-      },
+      headers: upstreamJsonHeaders(profileFromCtx(ctx)),
     })
     
     const testData = await response.json()
@@ -466,9 +489,7 @@ export async function test(ctx: Context): Promise<void> {
       try {
         await fetch(connectUrl, {
           method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-          },
+          headers: upstreamJsonHeaders(profileFromCtx(ctx)),
         })
       } catch (connectErr) {
         // Connect failed, but test was successful - still return success
@@ -530,7 +551,7 @@ export async function getTools(ctx: Context): Promise<void> {
   try {
     const response = await fetch(url, {
       method: 'GET',
-      headers: { 'Accept': 'application/json' },
+      headers: upstreamJsonHeaders(profileFromCtx(ctx)),
     })
     const data = await response.json()
     ctx.body = data
@@ -613,9 +634,7 @@ export async function connect(ctx: Context): Promise<void> {
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-      },
+      headers: upstreamJsonHeaders(profileFromCtx(ctx)),
     })
     
     const data = await response.json()
@@ -663,9 +682,7 @@ export async function disconnect(ctx: Context): Promise<void> {
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-      },
+      headers: upstreamJsonHeaders(profileFromCtx(ctx)),
     })
     
     const data = await response.json()
@@ -718,7 +735,7 @@ export async function startServer(ctx: Context): Promise<void> {
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Accept': 'application/json' },
+      headers: upstreamJsonHeaders(profileFromCtx(ctx)),
     })
     const data = await response.json()
     
@@ -777,7 +794,7 @@ export async function stopServer(ctx: Context): Promise<void> {
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Accept': 'application/json' },
+      headers: upstreamJsonHeaders(profileFromCtx(ctx)),
     })
     const data = await response.json()
     
@@ -825,9 +842,7 @@ export async function serverStatus(ctx: Context): Promise<void> {
   try {
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
+      headers: upstreamJsonHeaders(profileFromCtx(ctx)),
     })
     
     const data = await response.json()

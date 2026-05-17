@@ -11,6 +11,10 @@ export async function initGatewayManager(): Promise<void> {
   gatewayManager = new GatewayManager(activeProfile)
 
   await gatewayManager.detectAllOnStartup()
-  await gatewayManager.startAll()
-  console.log("startall")
+  const gatewayRun = process.env.HERMES_GATEWAY_RUN?.trim().toLowerCase()
+  if (gatewayRun === 'false' || gatewayRun === '0') {
+    console.log('[bootstrap] HERMES_GATEWAY_RUN disabled, skipping gateway startAll')
+  } else {
+    await gatewayManager.startAll()
+  }
 }

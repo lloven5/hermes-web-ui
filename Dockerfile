@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=nousresearch/hermes-agent:latest
+ARG BASE_IMAGE=hermes-agent:v2
 FROM ${BASE_IMAGE}
 
 USER root
@@ -28,13 +28,14 @@ RUN npm install --ignore-scripts && npm rebuild node-pty
 
 COPY . .
 
-RUN npm run build && npm prune --omit=dev
+# Use vite build and build-server script without vue-tsc type checking
+RUN npx vite build && node scripts/build-server.mjs && npm prune --omit=dev
 
 ENV NODE_ENV=production
-ENV HOME=/home/agent
-ENV HERMES_HOME=/home/agent/.hermes
+ENV HERMES_HOME=/opt/data
+ENV HOME=/opt/data
 
-EXPOSE 6060
+EXPOSE 3003
 
 # 强制覆盖基础镜像的默认启动脚本，让镜像本身具备独立运行的能力
 ENTRYPOINT ["node", "dist/server/index.js"]
