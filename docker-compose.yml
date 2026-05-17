@@ -2,6 +2,7 @@ services:
   hermes-agent:
     image: ${HERMES_AGENT_IMAGE:-hermes-agent:v2}
     container_name: ${HERMES_AGENT_CONTAINER_NAME:-hermes-agent}
+    user: root
     volumes:
       - ./hermes_data:/opt/data
       - hermes-agent-src:/opt/hermes
@@ -32,9 +33,9 @@ services:
       dockerfile: Dockerfile
       args:
         BASE_IMAGE: ${HERMES_AGENT_IMAGE:-hermes-agent:v2}
-    image: ${WEBUI_IMAGE:-hermes-web:v2}
+    image: ${WEBUI_IMAGE:-hermes-web-ui:v2}
     container_name: ${WEBUI_CONTAINER_NAME:-hermes-webui}
-    user: "10000:10000"
+    user: root
     entrypoint: ["node", "dist/server/index.js"]
     depends_on:
       - hermes-agent

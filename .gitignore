@@ -64,3 +64,4 @@ temp/
 .LSOverride
 Thumbs.db
 *.db
+hermes_data/
