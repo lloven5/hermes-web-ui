@@ -8,6 +8,8 @@ services:
       - hermes-agent-src:/opt/hermes
     # 默认无 CMD 时入口为 `hermes` → 交互 chat，不会监听 API；Web UI 依赖 8642 的 /v1/runs
     command: ["gateway", "run"]
+    env_file:
+      - ./hermes_data/.env
     environment:
       - HERMES_HOME=/opt/data
       - HOME=/opt/data
@@ -33,7 +35,7 @@ services:
       dockerfile: Dockerfile
       args:
         BASE_IMAGE: ${HERMES_AGENT_IMAGE:-hermes-agent:v2}
-    image: ${WEBUI_IMAGE:-hermes-web-ui:v2}
+    image: ${WEBUI_IMAGE:-hermes-web:v2}
     container_name: ${WEBUI_CONTAINER_NAME:-hermes-webui}
     user: root
     entrypoint: ["node", "dist/server/index.js"]

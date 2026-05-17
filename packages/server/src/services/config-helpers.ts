@@ -14,7 +14,7 @@ export const PROVIDER_ENV_MAP: Record<string, { api_key_env: string; base_url_en
   'glm-coding-plan': { api_key_env: '', base_url_env: '' },
   zai: { api_key_env: 'GLM_API_KEY', base_url_env: '' },
   'kimi-coding-cn': { api_key_env: 'KIMI_CN_API_KEY', base_url_env: '' },
-  moonshot: { api_key_env: 'MOONSHOT_API_KEY', base_url_env: '' },
+  moonshot: { api_key_env: 'KIMI_API_KEY', base_url_env: '' },
   minimax: { api_key_env: 'MINIMAX_API_KEY', base_url_env: '' },
   'minimax-cn': { api_key_env: 'MINIMAX_CN_API_KEY', base_url_env: '' },
   deepseek: { api_key_env: 'DEEPSEEK_API_KEY', base_url_env: '' },
